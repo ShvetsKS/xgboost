@@ -70,7 +70,8 @@ class ColumnMatrix {
   }
 
   // construct column matrix from GHistIndexMatrix
-  inline void Init(const GHistIndexMatrix& gmat,
+  template<typename T>
+  inline void Init(const GHistIndexMatrix<T>& gmat,
                    double  sparse_threshold) {
     const int32_t nfeature = static_cast<int32_t>(gmat.cut.Ptrs().size() - 1);
     const size_t nrow = gmat.row_ptr.size() - 1;
@@ -146,8 +147,11 @@ class ColumnMatrix {
       const size_t ibegin = gmat.row_ptr[rid];
       const size_t iend = gmat.row_ptr[rid + 1];
       size_t fid = 0;
+      size_t jptr = 0;
       for (size_t i = ibegin; i < iend; ++i) {
-        const uint32_t bin_id = gmat.index[i];
+        //const uint32_t bin_id = gmat.index[i];
+        const uint32_t bin_id = (uint32_t)(gmat.index[i]) + gmat.cut.Ptrs()[jptr];// + gmat.cut.Ptrs()[jptr];
+        ++jptr;
         auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
                                      gmat.cut.Ptrs().cend(), bin_id);
         fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;

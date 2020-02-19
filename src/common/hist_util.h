@@ -29,7 +29,9 @@ namespace common {
  * \brief A single row in global histogram index.
  *  Directly represent the global index in the histogram entry.
  */
-using GHistIndexRow = Span<uint32_t const>;
+template<typename T>
+using GHistIndexRow = Span<T const>;
+//using GHistIndexRow2 = Span<uint8_t const>;
 
 // A CSC matrix representing histogram cuts, used in CPU quantile hist.
 // The cut values represent upper bounds of bins containing approximately equal numbers of elements
@@ -196,11 +198,12 @@ size_t DeviceSketch(int device,
  *  Transform floating values to integer index in histogram This is a global histogram
  *  index for CPU histogram.  On GPU ellpack page is used.
  */
+template <typename T>
 struct GHistIndexMatrix {
   /*! \brief row pointer to rows by element position */
   std::vector<size_t> row_ptr;
   /*! \brief The index data */
-  std::vector<uint32_t> index;
+  std::vector<T> index;
   /*! \brief hit count of each index */
   std::vector<size_t> hit_count;
   /*! \brief The corresponding cuts */
@@ -208,9 +211,9 @@ struct GHistIndexMatrix {
   // Create a global histogram matrix, given cut
   void Init(DMatrix* p_fmat, int max_num_bins);
   // get i-th row
-  inline GHistIndexRow operator[](size_t i) const {
+  inline GHistIndexRow<T> operator[](size_t i) const {
     return {&index[0] + row_ptr[i],
-            static_cast<GHistIndexRow::index_type>(
+            static_cast<typename GHistIndexRow<T>::index_type>(
                 row_ptr[i + 1] - row_ptr[i])};
   }
   inline void GetFeatureCounts(size_t* counts) const {
@@ -236,7 +239,7 @@ struct GHistIndexBlock {
     : row_ptr(row_ptr), index(index) {}
 
   // get i-th row
-  inline GHistIndexRow operator[](size_t i) const {
+  inline GHistIndexRow<uint32_t> operator[](size_t i) const {
     return {&index[0] + row_ptr[i], row_ptr[i + 1] - row_ptr[i]};
   }
 };
@@ -245,7 +248,8 @@ class ColumnMatrix;
 
 class GHistIndexBlockMatrix {
  public:
-  void Init(const GHistIndexMatrix& gmat,
+  template<typename T>
+  void Init(const GHistIndexMatrix<T>& gmat,
             const ColumnMatrix& colmat,
             const tree::TrainParam& param);
 
@@ -257,10 +261,10 @@ class GHistIndexBlockMatrix {
     return blocks_.size();
   }
 
+  const HistogramCuts* cut_;
  private:
   std::vector<size_t> row_ptr_;
   std::vector<uint32_t> index_;
-  const HistogramCuts* cut_;
   struct Block {
     const size_t* row_ptr_begin;
     const size_t* row_ptr_end;
@@ -542,9 +546,10 @@ class GHistBuilder {
   GHistBuilder(size_t nthread, uint32_t nbins) : nthread_{nthread}, nbins_{nbins} {}
 
   // construct a histogram via histogram aggregation
+  template<typename T>
   void BuildHist(const std::vector<GradientPair>& gpair,
                  const RowSetCollection::Elem row_indices,
-                 const GHistIndexMatrix& gmat,
+                 const GHistIndexMatrix<T>& gmat,
                  GHistRow hist,
                  bool isDense);
   // same, with feature grouping
