@@ -161,7 +161,18 @@ class QuantileHistMaker: public TreeUpdater {
       if (param_.enable_feature_grouping > 0) {
         hist_builder_.BuildBlockHist(gpair, row_indices, gmatb, hist);
       } else {
-        hist_builder_.BuildHist(gpair, row_indices, gmat, hist, data_layout_ != kSparseData);
+        switch(gmat.index.getBinBound())
+        {
+          case common::POWER_OF_TWO_8:
+            hist_builder_.BuildHist(gpair, row_indices, gmat.index.data<uint8_t>(), gmat.index.disp(), gmat.row_ptr.data(), hist, data_layout_ != kSparseData);
+            break;
+          case common::POWER_OF_TWO_16:
+            hist_builder_.BuildHist(gpair, row_indices, gmat.index.data<uint16_t>(), gmat.index.disp(), gmat.row_ptr.data(), hist, data_layout_ != kSparseData);
+            break;
+          case common::POWER_OF_TWO_32:
+            hist_builder_.BuildHist(gpair, row_indices, gmat.index.data<uint32_t>(), gmat.index.disp(), gmat.row_ptr.data(), hist, data_layout_ != kSparseData);
+            break;
+        }
       }
     }
 

@@ -26,8 +26,30 @@
   #define PREFETCH_READ_T0(addr) do {} while (0)
 #endif  // defined(XGBOOST_MM_PREFETCH_PRESENT)
 
+#define BUILDHIST_EXPLICIT_INSTATIATION(type) template void GHistBuilder::BuildHist(const std::vector<GradientPair>& gpair, \
+                             const RowSetCollection::Elem row_indices, \
+                             const type* index,                        \
+                             const uint32_t* disps,                    \
+                             const size_t* row_ptr,                    \
+                             GHistRow hist,                            \
+                             bool isDense);
+
 namespace xgboost {
 namespace common {
+
+uint32_t getValueFromUint8(void *t, size_t i)
+{
+  return ((uint8_t*)t)[i];
+}
+uint32_t getValueFromUint16(void* t, size_t i)
+{
+  return ((uint16_t*)t)[i];
+}
+
+uint32_t getValueFromUint32(void* t, size_t i)
+{
+  return ((uint32_t*)t)[i];
+}
 
 HistogramCuts::HistogramCuts() {
   monitor_.Init(__FUNCTION__);
@@ -348,6 +370,28 @@ void DenseCuts::Init
   monitor_.Stop(__func__);
 }
 
+template<typename T>
+void GHistIndexMatrix::setIndexData(T* const index_data, size_t batch_threads, const SparsePage& batch, size_t rbegin, uint32_t* disps, size_t nbins)
+{
+  #pragma omp parallel for num_threads(batch_threads) schedule(static)
+    for (omp_ulong i = 0; i < batch.Size(); ++i) {
+      const int tid = omp_get_thread_num();\
+      size_t ibegin = row_ptr[rbegin + i];
+      size_t iend = row_ptr[rbegin + i + 1];
+      SparsePage::Inst inst = batch[i];
+      CHECK_EQ(ibegin + inst.size(), iend);
+      for (bst_uint j = 0; j < inst.size(); ++j) {
+        uint32_t idx = cut.SearchBin(inst[j]);
+        index_data[ibegin + j] = (T)(idx - disps[j]);
+        ++hit_count_tloc_[tid * nbins + idx];
+      }
+    }
+}
+template void GHistIndexMatrix::setIndexData(uint8_t* const, size_t batch_threads, const SparsePage& batch, size_t rbegin, uint32_t* disps, size_t nbins);
+template void GHistIndexMatrix::setIndexData(uint16_t* const, size_t batch_threads, const SparsePage& batch, size_t rbegin, uint32_t* disps, size_t nbins);
+template void GHistIndexMatrix::setIndexData(uint32_t* const, size_t batch_threads, const SparsePage& batch, size_t rbegin, uint32_t* disps, size_t nbins);
+
+
 void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
   cut.Build(p_fmat, max_num_bins);
   const int32_t nthread = omp_get_max_threads();
@@ -411,26 +455,52 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
         }
       }
     }
-
-    index.resize(row_ptr[rbegin + batch.Size()]);
+    const size_t n_disps = cut.Ptrs().size() - 1;
+    if(max_num_bins <= 256)
+    {
+      index.setBinBound(POWER_OF_TWO_8);
+      index.resize((sizeof(uint8_t)) * row_ptr[rbegin + batch.Size()], n_disps);
+    }
+    if(max_num_bins > 256 && max_num_bins <= 65536)
+    {
+      index.setBinBound(POWER_OF_TWO_16);
+      index.resize((sizeof(uint16_t)) * row_ptr[rbegin + batch.Size()], n_disps);
+    }
+    else
+    {
+      index.setBinBound(POWER_OF_TWO_32);
+      index.resize((sizeof(uint32_t)) * row_ptr[rbegin + batch.Size()], n_disps);
+    }
 
     CHECK_GT(cut.Values().size(), 0U);
-
-    #pragma omp parallel for num_threads(batch_threads) schedule(static)
-    for (omp_ulong i = 0; i < batch.Size(); ++i) { // NOLINT(*)
-      const int tid = omp_get_thread_num();
-      size_t ibegin = row_ptr[rbegin + i];
-      size_t iend = row_ptr[rbegin + i + 1];
-      SparsePage::Inst inst = batch[i];
-
-      CHECK_EQ(ibegin + inst.size(), iend);
-      for (bst_uint j = 0; j < inst.size(); ++j) {
-        uint32_t idx = cut.SearchBin(inst[j]);
-
-        index[ibegin + j] = idx;
-        ++hit_count_tloc_[tid * nbins + idx];
+    uint32_t* disps = index.disp();
+    index.setDispSize(n_disps);
+    if(max_num_bins <= 65536)
+    {
+      for(size_t i = 0; i < n_disps; ++i)
+      {
+        disps[i] = cut.Ptrs()[i];
       }
-      std::sort(index.begin() + ibegin, index.begin() + iend);
+    }
+    else
+    {
+      for(size_t i = 0; i < n_disps; ++i)
+      {
+        disps[i] = 0;
+      }
+    }
+
+    switch(index.getBinBound())
+    {
+        case POWER_OF_TWO_8:
+          setIndexData(index.data<uint8_t>(), batch_threads, batch, rbegin, disps, nbins);
+          break;
+        case POWER_OF_TWO_16:
+          setIndexData(index.data<uint16_t>(), batch_threads, batch, rbegin, disps, nbins);
+          break;
+        case POWER_OF_TWO_32:
+          setIndexData(index.data<uint32_t>(), batch_threads, batch, rbegin, disps, nbins);
+          break;
     }
 
     #pragma omp parallel for num_threads(nthread) schedule(static)
@@ -723,9 +793,8 @@ struct Prefetch {
  public:
   static constexpr size_t kCacheLineSize = 64;
   static constexpr size_t kPrefetchOffset = 10;
-  static constexpr size_t kPrefetchStep =
-      kCacheLineSize / sizeof(decltype(GHistIndexMatrix::index)::value_type);
-
+  //static constexpr size_t kPrefetchStep =
+  //    kCacheLineSize / sizeof(decltype(GHistIndexMatrix::index)::value_type);
  private:
   static constexpr size_t kNoPrefetchSize =
       kPrefetchOffset + kCacheLineSize /
@@ -739,12 +808,18 @@ struct Prefetch {
 
 constexpr size_t Prefetch::kNoPrefetchSize;
 
-template<typename FPType, bool do_prefetch>
+template <typename T>
+size_t getPrefetchStep()
+{
+  return Prefetch::kCacheLineSize / sizeof(T);
+}
+
+template<typename FPType, bool do_prefetch, typename T>
 void BuildHistDenseKernel(const common::Span<const size_t> rid_span, const float* pgh,
-                          const uint32_t* index, const size_t n_features, FPType* hist_data) {
+                          const T* index, const uint32_t* disps, const size_t n_features, FPType* hist_data) {
   const size_t size = rid_span.size();
   const size_t* rid = rid_span.data();
-
+  const size_t prefetch_step = getPrefetchStep<T>();
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = rid[i] * n_features;
     const size_t idx_gh = 2*rid[i];
@@ -754,27 +829,27 @@ void BuildHistDenseKernel(const common::Span<const size_t> rid_span, const float
 
       PREFETCH_READ_T0(pgh + 2*rid[i + Prefetch::kPrefetchOffset]);
       for (size_t j = icol_start_prefetch; j < icol_start_prefetch + n_features;
-           j += Prefetch::kPrefetchStep) {
+           j += prefetch_step) {
         PREFETCH_READ_T0(index + j);
       }
     }
-
+    size_t jd = 0;
     for (size_t j = icol_start; j < icol_start + n_features; ++j) {
-      const uint32_t idx_bin = 2 * index[j];
-
+      const uint32_t idx_bin = 2 * ((uint32_t)(index[j]) + disps[jd]);
+      ++jd;
       hist_data[idx_bin]   += pgh[idx_gh];
       hist_data[idx_bin+1] += pgh[idx_gh+1];
     }
   }
 }
 
-template<typename FPType, bool do_prefetch>
+template<typename FPType, bool do_prefetch, typename T>
 void BuildHistSparseKernel(const common::Span<const size_t> rid_span, const float* pgh,
-                           const uint32_t* gradient_index, const size_t* row_ptr,
+                           const T* gradient_index, const uint32_t* disps, const size_t* row_ptr,
                            FPType* hist_data) {
   const size_t size = rid_span.size();
   const size_t* rid = rid_span.data();
-
+  const size_t prefetch_step = getPrefetchStep<T>();
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = row_ptr[rid[i]];
     const size_t icol_end = row_ptr[rid[i]+1];
@@ -785,41 +860,46 @@ void BuildHistSparseKernel(const common::Span<const size_t> rid_span, const floa
       const size_t icol_end_prefect = row_ptr[rid[i+Prefetch::kPrefetchOffset]+1];
 
       PREFETCH_READ_T0(pgh + 2*rid[i + Prefetch::kPrefetchOffset]);
-      for (size_t j = icol_start_prftch; j < icol_end_prefect; j+=Prefetch::kPrefetchStep) {
+      for (size_t j = icol_start_prftch; j < icol_end_prefect; j+=prefetch_step) {
         PREFETCH_READ_T0(gradient_index + j);
       }
     }
-
+    size_t jd = 0;
     for (size_t j = icol_start; j < icol_end; ++j) {
-      const uint32_t idx_bin = 2 * gradient_index[j];
+      const uint32_t idx_bin = 2 * ((uint32_t)(gradient_index[j]) + disps[jd]);
+      ++jd;
       hist_data[idx_bin]   += pgh[idx_gh];
       hist_data[idx_bin+1] += pgh[idx_gh+1];
     }
   }
 }
 
-template<typename FPType, bool do_prefetch>
+template<typename FPType, bool do_prefetch, typename T>
 void BuildHistKernel(const common::Span<const size_t> rid_span, const float* pgh,
-                     const uint32_t* gradient_index,  const size_t* row_ptr, const bool isDense,
+                     const T* gradient_index, const uint32_t* disps, const size_t* row_ptr, const bool isDense,
                      FPType* hist_data) {
   if (rid_span.size() && isDense) {
     const size_t n_features = row_ptr[rid_span[0]+1] - row_ptr[rid_span[0]];
-    BuildHistDenseKernel<FPType, do_prefetch>(rid_span, pgh, gradient_index,
+    BuildHistDenseKernel<FPType, do_prefetch>(rid_span, pgh, gradient_index, disps,
                                               n_features, hist_data);
   } else {
-    BuildHistSparseKernel<FPType, do_prefetch>(rid_span, pgh, gradient_index, row_ptr, hist_data);
+    BuildHistSparseKernel<FPType, do_prefetch>(rid_span, pgh, gradient_index, disps, row_ptr, hist_data);
   }
 }
 
+template<typename T>
 void GHistBuilder::BuildHist(const std::vector<GradientPair>& gpair,
                              const RowSetCollection::Elem row_indices,
-                             const GHistIndexMatrix& gmat,
+                             //const GHistIndexMatrix& gmat,
+                             const T* index,
+                             const uint32_t* disps,
+                             const size_t* row_ptr,
                              GHistRow hist,
                              bool isDense) {
   const size_t* rid =  row_indices.begin;
   const size_t nrows = row_indices.Size();
-  const uint32_t* index = gmat.index.data();
-  const size_t* row_ptr =  gmat.row_ptr.data();
+  //const T* index = gmat.index.data();
+  //const size_t* row_ptr =  gmat.row_ptr.data();
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
 
   using FPType = decltype(tree::GradStats::sum_grad);
@@ -832,17 +912,20 @@ void GHistBuilder::BuildHist(const std::vector<GradientPair>& gpair,
   if (contiguousBlock) {
     // contiguous memory access, built-in HW prefetching is enough
     const common::Span<const size_t> rid_span(rid, rid + nrows);
-    BuildHistKernel<FPType, false>(rid_span, pgh, index, row_ptr, isDense, hist_data);
+    BuildHistKernel<FPType, false, T>(rid_span, pgh, index, disps, row_ptr, isDense, hist_data);
   } else {
     const common::Span<const size_t> rid_span_1(rid, rid + nrows - no_prefetch_size);
     const common::Span<const size_t> rid_span_2(rid + nrows - no_prefetch_size, rid + nrows);
-    BuildHistKernel<FPType, true>(rid_span_1, pgh, index,
+    BuildHistKernel<FPType, true, T>(rid_span_1, pgh, index, disps,
                                   row_ptr, isDense, hist_data);
     // no prefetching to avoid loading extra memory
-    BuildHistKernel<FPType, false>(rid_span_2, pgh, index,
+    BuildHistKernel<FPType, false, T>(rid_span_2, pgh, index, disps,
                                    row_ptr, isDense, hist_data);
   }
 }
+BUILDHIST_EXPLICIT_INSTATIATION(uint8_t)
+BUILDHIST_EXPLICIT_INSTATIATION(uint16_t)
+BUILDHIST_EXPLICIT_INSTATIATION(uint32_t)
 
 void GHistBuilder::BuildBlockHist(const std::vector<GradientPair>& gpair,
                                   const RowSetCollection::Elem row_indices,
