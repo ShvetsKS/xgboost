@@ -30,6 +30,7 @@ namespace common {
  *  Directly represent the global index in the histogram entry.
  */
 using GHistIndexRow = Span<uint32_t const>;
+using GHistIndexRow2 = Span<uint8_t const>;
 
 // A CSC matrix representing histogram cuts, used in CPU quantile hist.
 // The cut values represent upper bounds of bins containing approximately equal numbers of elements
@@ -200,7 +201,7 @@ struct GHistIndexMatrix {
   /*! \brief row pointer to rows by element position */
   std::vector<size_t> row_ptr;
   /*! \brief The index data */
-  std::vector<uint32_t> index;
+  std::vector<uint8_t> index;
   /*! \brief hit count of each index */
   std::vector<size_t> hit_count;
   /*! \brief The corresponding cuts */
@@ -208,9 +209,9 @@ struct GHistIndexMatrix {
   // Create a global histogram matrix, given cut
   void Init(DMatrix* p_fmat, int max_num_bins);
   // get i-th row
-  inline GHistIndexRow operator[](size_t i) const {
+  inline GHistIndexRow2 operator[](size_t i) const {
     return {&index[0] + row_ptr[i],
-            static_cast<GHistIndexRow::index_type>(
+            static_cast<GHistIndexRow2::index_type>(
                 row_ptr[i + 1] - row_ptr[i])};
   }
   inline void GetFeatureCounts(size_t* counts) const {
@@ -257,10 +258,10 @@ class GHistIndexBlockMatrix {
     return blocks_.size();
   }
 
+  const HistogramCuts* cut_;
  private:
   std::vector<size_t> row_ptr_;
   std::vector<uint32_t> index_;
-  const HistogramCuts* cut_;
   struct Block {
     const size_t* row_ptr_begin;
     const size_t* row_ptr_end;
