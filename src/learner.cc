@@ -721,9 +721,9 @@ class LearnerImpl : public Learner {
   }
 
   void UpdateOneIter(int iter, std::shared_ptr<DMatrix> train) override {
-    monitor_.Start("UpdateOneIter");
     TrainingObserver::Instance().Update(iter);
     this->Configure();
+    monitor_.Start("UpdateOneIter");
     if (generic_parameters_.seed_per_iteration || rabit::IsDistributed()) {
       common::GlobalRandom().seed(generic_parameters_.seed * kRandSeedMagic + iter);
     }
