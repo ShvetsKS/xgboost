@@ -142,12 +142,16 @@ class ColumnMatrix {
     std::vector<size_t> num_nonzeros;
     num_nonzeros.resize(nfeature);
     std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
+    uint8_t* index = gmat.index.data<uint8_t>();
+    uint32_t* disp = gmat.index.disp();
     for (size_t rid = 0; rid < nrow; ++rid) {
       const size_t ibegin = gmat.row_ptr[rid];
       const size_t iend = gmat.row_ptr[rid + 1];
       size_t fid = 0;
+      size_t jp = 0;
       for (size_t i = ibegin; i < iend; ++i) {
-        const uint32_t bin_id = gmat.index[i];
+        const uint32_t bin_id = index[i] + disp[jp];//gmat.index[i];
+        ++jp;
         auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
                                      gmat.cut.Ptrs().cend(), bin_id);
         fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
