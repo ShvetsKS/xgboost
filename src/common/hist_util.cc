@@ -456,12 +456,13 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
       }
     }
     const size_t n_disps = cut.Ptrs().size() - 1;
+    std::cout << "max_num_bins: " << max_num_bins << "\n";
     if(max_num_bins <= 256)
     {
       index.setBinBound(POWER_OF_TWO_8);
       index.resize((sizeof(uint8_t)) * row_ptr[rbegin + batch.Size()], n_disps);
     }
-    if(max_num_bins > 256 && max_num_bins <= 65536)
+    else if(max_num_bins > 256 && max_num_bins <= 65536)
     {
       index.setBinBound(POWER_OF_TWO_16);
       index.resize((sizeof(uint16_t)) * row_ptr[rbegin + batch.Size()], n_disps);
