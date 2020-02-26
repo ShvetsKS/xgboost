@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <iostream>
 
+uint64_t get_time();
 namespace xgboost {
 namespace common {
 /*!
@@ -80,11 +81,13 @@ struct WQSummary {
     size_t qtail;
     // push data to the queue
     inline void Push(DType x, RType w) {
+
       if (qtail == 0 || queue[qtail - 1].value != x) {
         queue[qtail++] = QEntry(x, w);
       } else {
         queue[qtail - 1].weight += w;
       }
+
     }
     inline void MakeSummary(WQSummary *out) {
       std::sort(queue.begin(), queue.begin() + qtail);
@@ -599,7 +602,7 @@ struct GKSummary {
  * \tparam TSummary actual summary data structure it uses
  */
 template<typename DType, typename RType, class TSummary>
-class QuantileSketchTemplate {
+class alignas(64) QuantileSketchTemplate {
  public:
   /*! \brief type of summary type */
   using Summary = TSummary;
@@ -721,6 +724,7 @@ class QuantileSketchTemplate {
    */
   inline void Push(DType x, RType w = 1) {
     if (w == static_cast<RType>(0)) return;
+    //uint64_t t1 = get_time();
     if (inqueue.qtail == inqueue.queue.size()) {
       // jump from lazy one value to limit_size * 2
       if (inqueue.queue.size() == 1) {
@@ -734,7 +738,15 @@ class QuantileSketchTemplate {
       }
     }
     inqueue.Push(x, w);
+    //*t = get_time() - t1;
   }
+
+  void TPush(DType x, RType w = 1, uint64_t* t = nullptr) {
+    uint64_t t1 = get_time();
+    Push(x,w);
+    *t = get_time() - t1;
+  }
+
 
   inline void PushSummary(const Summary& summary) {
     temp.Reserve(limit_size * 2);
@@ -820,6 +832,7 @@ class QuantileSketchTemplate {
   std::vector<Entry> data;
   // temporal summary, used for temp-merge
   SummaryContainer temp;
+  char padd[56];
 };
 
 /*!
@@ -828,7 +841,7 @@ class QuantileSketchTemplate {
  * \tparam RType type of rank
  */
 template<typename DType, typename RType = unsigned>
-class WQuantileSketch :
+class alignas(64) WQuantileSketch :
       public QuantileSketchTemplate<DType, RType, WQSummary<DType, RType> > {
 };
 

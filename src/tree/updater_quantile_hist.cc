@@ -67,15 +67,18 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
   if (dmat != p_last_dmat_ || is_gmat_initialized_ == false) {
 uint64_t t1 = get_time();
     gmat_.Init(dmat, static_cast<uint32_t>(param_.max_bin));
+uint64_t t2 = get_time();
+std::cout << "-----gmat_.Init time: " << (double)(t2 - t1)/(double)1000000000 << "\n\n";
+t1 = get_time();
     column_matrix_.Init(gmat_, param_.sparse_threshold);
+t2 = get_time();
+std::cout << "-----column_matrix_.Init time: " << (double)(t2 - t1)/(double)1000000000 << "\n\n";
     if (param_.enable_feature_grouping > 0) {
       gmatb_.Init(gmat_, column_matrix_, param_);
     }
     // A proper solution is puting cut matrix in DMatrix, see:
     // https://github.com/dmlc/xgboost/issues/5143
     is_gmat_initialized_ = true;
-uint64_t t2 = get_time();
-std::cout << "init_time: " << (double)(t2 - t1)/(double)1000000000 << "\n\n";
   }
   // rescale learning rate according to size of trees
   float lr = param_.learning_rate;

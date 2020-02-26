@@ -33,7 +33,7 @@
                              const size_t* row_ptr,                    \
                              GHistRow hist,                            \
                              bool isDense);
-
+uint64_t get_time();
 namespace xgboost {
 namespace common {
 
@@ -258,27 +258,54 @@ void DenseCuts::Build(DMatrix* p_fmat, uint32_t max_num_bins) {
   std::vector<WQSketch> sketchs;
 
   const int nthread = omp_get_max_threads();
+std::cout << "\nnthread: " << nthread << "\n";
+std::cout << "\nsizeOf WQSketch: " << sizeof(WQSketch) << "\n";
 
   unsigned const nstep =
       static_cast<unsigned>((info.num_col_ + nthread - 1) / nthread);
   unsigned const ncol = static_cast<unsigned>(info.num_col_);
   sketchs.resize(info.num_col_);
+  std::cout  << "\nnstep = " << nstep << "\n";
+  std::cout  << "\ninfo.num_col_: " << info.num_col_ << "\n";
+/*  for (const auto &batch : p_fmat->GetBatches<SparsePage>()) {
+    SparsePage::Inst const inst = batch[0];
+    std::cout << "\nbatch.base_rowid: " <<  batch.base_rowid << "\n";
+    std::cout << "\nbatch[0].size(): " << inst.size() << "\ninst: \n";
+    for (auto const& entry : inst) {
+      std::cout  << entry.index << "   ";
+    }
+    std::cout << "\n";
+
+  }*/
   for (auto& s : sketchs) {
     s.Init(info.num_row_, 1.0 / (max_num_bins * kFactor));
   }
+std::cout  << "\n !!!! sketchs[0].limit_size: " <<  sketchs[0].limit_size << "\n";
 
   // Data groups, used in ranking.
   std::vector<bst_uint> const& group_ptr = info.group_ptr_;
   size_t const num_groups = group_ptr.size() == 0 ? 0 : group_ptr.size() - 1;
   // Use group index for weights?
   bool const use_group = UseGroup(p_fmat);
-
+std::cout << "\nuse_group: " << use_group << "\n";
   for (const auto &batch : p_fmat->GetBatches<SparsePage>()) {
     size_t group_ind = 0;
     if (use_group) {
       group_ind = this->SearchGroupIndFromRow(group_ptr, batch.base_rowid);
     }
-#pragma omp parallel num_threads(nthread) firstprivate(group_ind, use_group)
+
+uint64_t times[48];
+for(size_t i = 0; i < 48; i++)
+  times[i] = 0;
+
+
+uint64_t times_push[48];
+for(size_t i = 0; i < 48; i++)
+  times_push[i] = 0;
+
+
+uint64_t tmp1 =  get_time();
+#pragma omp parallel num_threads(nthread)// firstprivate(group_ind, use_group)
     {
       CHECK_EQ(nthread, omp_get_num_threads());
       auto tid = static_cast<unsigned>(omp_get_thread_num());
@@ -290,22 +317,126 @@ void DenseCuts::Build(DMatrix* p_fmat, uint32_t max_num_bins) {
         for (size_t i = 0; i < batch.Size(); ++i) { // NOLINT(*)
           size_t const ridx = batch.base_rowid + i;
           SparsePage::Inst const inst = batch[i];
-          if (use_group &&
+          /*if (use_group &&
               group_ptr[group_ind] == ridx &&
               // maximum equals to weights.size() - 1
               group_ind < num_groups - 1) {
             // move to next group
             group_ind++;
-          }
-          for (auto const& entry : inst) {
-            if (entry.index >= begin && entry.index < end) {
-              size_t w_idx = use_group ? group_ind : ridx;
-              sketchs[entry.index].Push(entry.fvalue, info.GetWeight(w_idx));
+          }*/
+          //Entry* entry = inst.data();
+          auto w = info.GetWeight(ridx);
+          auto data = inst.data();
+
+          for(size_t ii = begin; ii < end; ii++)
+          {
+            if (sketchs[ii].inqueue.qtail == sketchs[ii].inqueue.queue.size()) {
+              // jump from lazy one value to limit_size * 2
+              if (sketchs[ii].inqueue.queue.size() == 1) {
+                sketchs[ii].inqueue.queue.resize(sketchs[ii].limit_size * 2);
+              } else {
+                sketchs[ii].temp.Reserve(sketchs[ii].limit_size * 2);
+                sketchs[ii].inqueue.MakeSummary(&(sketchs[ii].temp));
+                // cleanup queue
+                sketchs[ii].inqueue.qtail = 0;
+                sketchs[ii].PushTemp();
+              }
             }
+            sketchs[ii].inqueue.Push(data[ii].fvalue, w);
           }
+
         }
       }
     }
+uint64_t tmp2 =  get_time();
+std::cout << "3DenseCuts::Build time: " << (double)(tmp2 - tmp1)/(double)1000000000 << "\n\n";
+
+
+//sketchs.clear();
+//sketchs.resize(info.num_col_);
+//for (auto& s : sketchs) {
+//  s.Init(info.num_row_, 1.0 / (max_num_bins * kFactor));
+//}
+
+//uint64_t t1 =  get_time();
+//#pragma omp parallel num_threads(nthread)// firstprivate(group_ind, use_group)
+//    {
+//      CHECK_EQ(nthread, omp_get_num_threads());
+//      auto tid = static_cast<unsigned>(omp_get_thread_num());
+//      unsigned begin = std::min(nstep * tid, ncol);
+//      unsigned end = std::min(nstep * (tid + 1), ncol);
+//
+//      // do not iterate if no columns are assigned to the thread
+//      if (begin < end && end <= ncol) {
+//        for (size_t i = 0; i < batch.Size(); ++i) { // NOLINT(*)
+//          size_t const ridx = batch.base_rowid + i;
+//          SparsePage::Inst const inst = batch[i];
+//          /*if (use_group &&
+//              group_ptr[group_ind] == ridx &&
+//              // maximum equals to weights.size() - 1
+//              group_ind < num_groups - 1) {
+//            // move to next group
+//            group_ind++;
+//          }*/
+//          //Entry* entry = inst.data();
+//          auto w = info.GetWeight(ridx);
+//          auto data = inst.data();
+//          //uint64_t t =  get_time();
+//          //uint64_t push_time = 0;
+//          for(size_t ii = begin; ii < end; ii++)
+//          {
+///*              size_t w_idx = use_group ? group_ind : ridx;
+//              sketchs[ii].Push(data[ii].fvalue, w);*/
+//              //times_push[tid] += push_time;
+//
+//    //if (w == static_cast<RType>(0)) return;
+////    uint64_t t1 = get_time();
+//    if (sketchs[ii].inqueue.qtail == sketchs[ii].inqueue.queue.size()) {
+//      // jump from lazy one value to limit_size * 2
+//      if (sketchs[ii].inqueue.queue.size() == 1) {
+//        sketchs[ii].inqueue.queue.resize(sketchs[ii].limit_size * 2);
+//      } else {
+//        sketchs[ii].temp.Reserve(sketchs[ii].limit_size * 2);
+//        sketchs[ii].inqueue.MakeSummary(&(sketchs[ii].temp));
+//        // cleanup queue
+//        sketchs[ii].inqueue.qtail = 0;
+//        sketchs[ii].PushTemp();
+//      }
+//    }
+//    sketchs[ii].inqueue.Push(data[ii].fvalue, w);
+////      times_push[tid] += get_time() - t1;
+//          }
+//          //times[tid] += get_time() - t ;
+//          //for (auto const& entry : inst) {
+//          //  if (entry.index >= begin && entry.index < end) {
+//          //    size_t w_idx = use_group ? group_ind : ridx;
+//          //    sketchs[entry.index].Push(entry.fvalue, info.GetWeight(w_idx));
+//          //  }
+//          //}
+//        }
+//      }
+//    }
+//uint64_t t2 =  get_time();
+//std::cout << "DenseCuts::Build time: " << (double)(t2 - t1)/(double)1000000000 << "\n\n";
+/*  double maxTime = 0;
+  std::cout << "\ntimes: \n";
+  for(size_t i = 0; i < 48; i++)
+  {
+    double tmp = (double)(times[i])/(double)1000000000;
+    std::cout << tmp << "   ";
+    maxTime = tmp > maxTime ? tmp : maxTime;
+  }
+  std::cout << "\n maxTime: " << maxTime << "\n";
+  std::cout << "\ntimes_push: \n";
+  double maxPushTime = 0;
+  for(size_t i = 0; i < 48; i++)
+  {
+    double tmp = (double)(times_push[i])/(double)1000000000;
+    std::cout << tmp << "   ";
+    maxPushTime = tmp > maxPushTime ? tmp : maxPushTime;
+  }
+  std::cout << "\n maxPushTime: " << maxPushTime << "\n";
+*/
   }
 
   Init(&sketchs, max_num_bins, info.num_row_);
@@ -392,8 +523,12 @@ template void GHistIndexMatrix::setIndexData(uint16_t* const, size_t batch_threa
 template void GHistIndexMatrix::setIndexData(uint32_t* const, size_t batch_threads, const SparsePage& batch, size_t rbegin, uint32_t* disps, size_t nbins);
 
 
+
 void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
+uint64_t t1 =  get_time();
   cut.Build(p_fmat, max_num_bins);
+uint64_t t2 =  get_time();
+std::cout << "GHistIndexMatrix::Init cut.Build: time: " << (double)(t2 - t1)/(double)1000000000 << "\n\n";
   const int32_t nthread = omp_get_max_threads();
   const uint32_t nbins = cut.Ptrs().back();
   hit_count.resize(nbins, 0);
@@ -412,6 +547,7 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
   size_t prev_sum = 0;
 
   for (const auto &batch : p_fmat->GetBatches<SparsePage>()) {
+    std::cout << "\nbatch.Size(): " << batch.Size() << "\n";
     // The number of threads is pegged to the batch size. If the OMP
     // block is parallelized on anything other than the batch/block size,
     // it should be reassigned
@@ -423,6 +559,7 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
 
     size_t block_size =  batch.Size() / batch_threads;
 
+t1 = get_time();
     #pragma omp parallel num_threads(batch_threads)
     {
       #pragma omp for
@@ -455,6 +592,8 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
         }
       }
     }
+t2 = get_time();
+std::cout << "GHistIndexMatrix::Init from 429 line: time: " << (double)(t2 - t1)/(double)1000000000 << "\n\n";
     const size_t n_disps = cut.Ptrs().size() - 1;
     std::cout << "max_num_bins: " << max_num_bins << "\n";
     if(max_num_bins <= 256)
@@ -473,6 +612,7 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
       index.resize((sizeof(uint32_t)) * row_ptr[rbegin + batch.Size()], n_disps);
     }
 
+t1 = get_time();
     CHECK_GT(cut.Values().size(), 0U);
     uint32_t* disps = index.disp();
     index.setDispSize(n_disps);
@@ -490,7 +630,10 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
         disps[i] = 0;
       }
     }
+t2 = get_time();
+std::cout << "GHistIndexMatrix::Init disp init: time: " << (double)(t2 - t1)/(double)1000000000 << "\n\n";
 
+t1 = get_time();
     switch(index.getBinBound())
     {
         case POWER_OF_TWO_8:
@@ -503,7 +646,10 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
           setIndexData(index.data<uint32_t>(), batch_threads, batch, rbegin, disps, nbins);
           break;
     }
+t2 = get_time();
+std::cout << "GHistIndexMatrix::Init setIndexData: time: " << (double)(t2 - t1)/(double)1000000000 << "\n\n";
 
+t1 = get_time();
     #pragma omp parallel for num_threads(nthread) schedule(static)
     for (bst_omp_uint idx = 0; idx < bst_omp_uint(nbins); ++idx) {
       for (int32_t tid = 0; tid < nthread; ++tid) {
@@ -511,6 +657,8 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
         hit_count_tloc_[tid * nbins + idx] = 0;  // reset for next batch
       }
     }
+t2 = get_time();
+std::cout << "GHistIndexMatrix::Init hit_count: time: " << (double)(t2 - t1)/(double)1000000000 << "\n\n";
 
     prev_sum = row_ptr[rbegin + batch.Size()];
     rbegin += batch.Size();
