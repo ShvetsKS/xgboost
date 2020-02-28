@@ -155,20 +155,20 @@ class ColumnMatrix {
       size_t fid = 0;
       size_t jp = 0;
       for (size_t i = ibegin; i < iend; ++i) {
-        const uint32_t bin_id = index[i] + disp[jp];//gmat.index[i];
-        ++jp;
-        auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
-                                     gmat.cut.Ptrs().cend(), bin_id);
-        fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
-        if (type_[fid] == kDenseColumn) {
-          uint8_t* begin = &index_[boundary_[fid].index_begin];
+        //const uint32_t bin_id = index[i] + disp[jp];//gmat.index[i];
+        //auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
+        //                             gmat.cut.Ptrs().cend(), bin_id);
+        //fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
+        //if (type_[fid] == kDenseColumn) {
+          uint8_t* begin = &index_[boundary_[jp].index_begin];
           begin[rid] = index[i];//bin_id - index_base_[fid];
-        } else {
+        ++jp;
+/*        } else {
           uint8_t* begin = &index_[boundary_[fid].index_begin];
           begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
           row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
           ++num_nonzeros[fid];
-        }
+        }*/
       }
     }
   }
