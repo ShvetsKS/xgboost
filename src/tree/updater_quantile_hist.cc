@@ -790,14 +790,14 @@ void QuantileHistMaker::Builder::EvaluateSplits(const std::vector<ExpandEntry>& 
 
 template <bool default_left>
 inline std::pair<size_t, size_t> PartitionDenseKernel(
-    const uint32_t *rid, const uint8_t *idx,
+    const uint32_t *rid, const uint32_t *idx,
     const uint32_t offset, const int32_t split_cond,
     const size_t istart, const size_t iend, uint32_t *p_left,
     uint32_t *p_right) {
   size_t ileft = 0;
   size_t iright = 0;
 
-  const uint8_t max_val = std::numeric_limits<uint8_t>::max();
+  const uint32_t max_val = std::numeric_limits<uint32_t>::max();
 
   for (size_t i = istart; i < iend; i++) {
     if (idx[rid[i]] == max_val) {
@@ -820,7 +820,7 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(
 
 template<bool default_left>
 inline std::pair<size_t, size_t> PartitionSparseKernel(const uint32_t* rid,
-    const uint8_t* idx, const uint32_t offset, const int32_t split_cond,
+    const uint32_t* idx, const uint32_t offset, const int32_t split_cond,
     const size_t istart, const size_t iend, uint32_t* p_left, uint32_t* p_right,
     bst_uint lower_bound, bst_uint upper_bound, const Column& column) {
 
@@ -886,7 +886,7 @@ void QuantileHistMaker::Builder::PartitionKernel(
   const bst_uint fid = tree[nid].SplitIndex();
   const bool default_left = tree[nid].DefaultLeft();
   const auto column = column_matrix.GetColumn(fid);
-  const uint8_t* idx = column.GetFeatureBinIdxPtr();
+  const uint32_t* idx = column.GetFeatureBinIdxPtr();
   const uint32_t offset = column.GetBaseIdx();
 
   std::pair<size_t, size_t> child_nodes_sizes;

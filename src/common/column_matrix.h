@@ -27,7 +27,7 @@ enum ColumnType {
     bin id is stored as index[i] + index_base. */
 class Column {
  public:
-  Column(ColumnType type, const uint8_t* index, uint32_t index_base,
+  Column(ColumnType type, const uint32_t* index, uint32_t index_base,
          const size_t* row_ind, size_t len)
       : type_(type),
         index_(index),
@@ -35,9 +35,9 @@ class Column {
         row_ind_(row_ind),
         len_(len) {}
   size_t Size() const { return len_; }
-  uint32_t GetGlobalBinIdx(size_t idx) const { return index_base_ + (uint8_t)index_[idx]; }
-  uint8_t GetFeatureBinIdx(size_t idx) const { return index_[idx]; }
-  const uint8_t* GetFeatureBinIdxPtr() const { return index_; }
+  uint32_t GetGlobalBinIdx(size_t idx) const { return index_base_ + (uint32_t)index_[idx]; }
+  uint32_t GetFeatureBinIdx(size_t idx) const { return index_[idx]; }
+  const uint32_t* GetFeatureBinIdxPtr() const { return index_; }
   // column.GetFeatureBinIdx(idx) + column.GetBaseIdx(idx) ==
   // column.GetGlobalBinIdx(idx)
   uint32_t GetBaseIdx() const { return index_base_; }
@@ -48,13 +48,13 @@ class Column {
     return type_ == ColumnType::kDenseColumn ? idx : row_ind_[idx];  // NOLINT
   }
   bool IsMissing(size_t idx) const {
-    return index_[idx] == std::numeric_limits<uint8_t>::max();
+    return index_[idx] == std::numeric_limits<uint32_t>::max();
   }
   const size_t* GetRowData() const { return row_ind_; }
 
  private:
   ColumnType type_;
-  const uint8_t* index_;
+  const uint32_t* index_;
   uint32_t index_base_;
   const size_t* row_ind_;
   const size_t len_;
@@ -129,9 +129,9 @@ class ColumnMatrix {
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       if (type_[fid] == kDenseColumn) {
         const size_t ibegin = boundary_[fid].index_begin;
-        uint8_t* begin = &index_[ibegin];
-        uint8_t* end = begin + nrow;
-        std::fill(begin, end, std::numeric_limits<uint8_t>::max());
+        uint32_t* begin = &index_[ibegin];
+        uint32_t* end = begin + nrow;
+        std::fill(begin, end, std::numeric_limits<uint32_t>::max());
         // max() indicates missing values
       }
       else
@@ -147,7 +147,7 @@ class ColumnMatrix {
     std::vector<size_t> num_nonzeros;
     num_nonzeros.resize(nfeature);
     std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
-    uint8_t* index = gmat.index.data<uint8_t>();
+    uint32_t* index = gmat.index.data<uint32_t>();
     uint32_t* disp = gmat.index.disp();
     for (size_t rid = 0; rid < nrow; ++rid) {
       const size_t ibegin = gmat.row_ptr[rid];
@@ -160,11 +160,11 @@ class ColumnMatrix {
         //                             gmat.cut.Ptrs().cend(), bin_id);
         //fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
         //if (type_[fid] == kDenseColumn) {
-          uint8_t* begin = &index_[boundary_[jp].index_begin];
+          uint32_t* begin = &index_[boundary_[jp].index_begin];
           begin[rid] = index[i];//bin_id - index_base_[fid];
         ++jp;
 /*        } else {
-          uint8_t* begin = &index_[boundary_[fid].index_begin];
+          uint32_t* begin = &index_[boundary_[fid].index_begin];
           begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
           row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
           ++num_nonzeros[fid];
@@ -196,7 +196,7 @@ class ColumnMatrix {
 
   std::vector<size_t> feature_counts_;
   std::vector<ColumnType> type_;
-  std::vector<uint8_t> index_;  // index_: may store smaller integers; needs padding
+  std::vector<uint32_t> index_;  // index_: may store smaller integers; needs padding
   std::vector<size_t> row_ind_;
   std::vector<ColumnBoundary> boundary_;
 
