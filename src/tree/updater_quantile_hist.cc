@@ -541,7 +541,7 @@ bool QuantileHistMaker::Builder::UpdatePredictionCache(
       }
       leaf_value = (*p_last_tree_)[nid].LeafValue();
 
-      for (const size_t* it = rowset.begin + r.begin(); it < rowset.begin + r.end(); ++it) {
+      for (const uint32_t* it = rowset.begin + r.begin(); it < rowset.begin + r.end(); ++it) {
         out_preds[*it] += leaf_value;
       }
     }
@@ -582,7 +582,7 @@ void QuantileHistMaker::Builder::InitData(const GHistIndexMatrix& gmat,
     }
     hist_builder_ = GHistBuilder(this->nthread_, nbins);
 
-    std::vector<size_t>& row_indices = row_set_collection_.row_indices_;
+    std::vector<uint32_t>& row_indices = row_set_collection_.row_indices_;
     row_indices.resize(info.num_row_);
     auto* p_row_indices = row_indices.data();
     // mark subsample and build list of member rows
@@ -790,10 +790,10 @@ void QuantileHistMaker::Builder::EvaluateSplits(const std::vector<ExpandEntry>& 
 
 template <bool default_left>
 inline std::pair<size_t, size_t> PartitionDenseKernel(
-    const size_t *rid, const uint8_t *idx,
+    const uint32_t *rid, const uint8_t *idx,
     const uint32_t offset, const int32_t split_cond,
-    const size_t istart, const size_t iend, size_t *p_left,
-    size_t *p_right) {
+    const size_t istart, const size_t iend, uint32_t *p_left,
+    uint32_t *p_right) {
   size_t ileft = 0;
   size_t iright = 0;
 
@@ -819,9 +819,9 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(
 }
 
 template<bool default_left>
-inline std::pair<size_t, size_t> PartitionSparseKernel(const size_t* rid,
+inline std::pair<size_t, size_t> PartitionSparseKernel(const uint32_t* rid,
     const uint8_t* idx, const uint32_t offset, const int32_t split_cond,
-    const size_t istart, const size_t iend, size_t* p_left, size_t* p_right,
+    const size_t istart, const size_t iend, uint32_t* p_left, uint32_t* p_right,
     bst_uint lower_bound, bst_uint upper_bound, const Column& column) {
 
   size_t ileft = 0;
@@ -879,9 +879,9 @@ void QuantileHistMaker::Builder::PartitionKernel(
     const size_t node_in_set, const size_t nid, common::Range1d range,
     const int32_t split_cond, const ColumnMatrix& column_matrix,
     const GHistIndexMatrix& gmat, const RegTree& tree) {
-  const size_t* rid = row_set_collection_[nid].begin;
-  size_t* p_left = partition_builder_.GetLeftBuffer(node_in_set, range.begin(), range.end());
-  size_t* p_right = partition_builder_.GetRightBuffer(node_in_set, range.begin(), range.end());
+  const uint32_t* rid = row_set_collection_[nid].begin;
+  uint32_t* p_left = partition_builder_.GetLeftBuffer(node_in_set, range.begin(), range.end());
+  uint32_t* p_right = partition_builder_.GetRightBuffer(node_in_set, range.begin(), range.end());
 
   const bst_uint fid = tree[nid].SplitIndex();
   const bool default_left = tree[nid].DefaultLeft();
@@ -1007,7 +1007,7 @@ void QuantileHistMaker::Builder::ApplySplit(const std::vector<ExpandEntry> nodes
   common::ParallelFor2d(space, this->nthread_, [&](size_t node_in_set, common::Range1d r) {
     const int32_t nid = nodes[node_in_set].nid;
     partition_builder_.MergeToArray(node_in_set, r.begin(),
-        const_cast<size_t*>(row_set_collection_[nid].begin));
+        const_cast<uint32_t*>(row_set_collection_[nid].begin));
   });
 
   // 5. Add info about splits into row_set_collection_
@@ -1041,7 +1041,7 @@ void QuantileHistMaker::Builder::InitNewNode(int nid,
         }
       } else {
         const RowSetCollection::Elem e = row_set_collection_[nid];
-        for (const size_t* it = e.begin; it < e.end; ++it) {
+        for (const uint32_t* it = e.begin; it < e.end; ++it) {
           stats.Add(gpair[*it]);
         }
       }

@@ -964,10 +964,10 @@ size_t getPrefetchStep()
 }
 
 template<typename FPType, bool do_prefetch, typename T>
-void BuildHistDenseKernel(const common::Span<const size_t> rid_span, const float* pgh,
+void BuildHistDenseKernel(const common::Span<const uint32_t> rid_span, const float* pgh,
                           const T* index, const uint32_t* disps, const size_t n_features, FPType* hist_data) {
   const size_t size = rid_span.size();
-  const size_t* rid = rid_span.data();
+  const uint32_t* rid = rid_span.data();
   const size_t prefetch_step = getPrefetchStep<T>();
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = rid[i] * n_features;
@@ -993,11 +993,11 @@ void BuildHistDenseKernel(const common::Span<const size_t> rid_span, const float
 }
 
 template<typename FPType, bool do_prefetch, typename T>
-void BuildHistSparseKernel(const common::Span<const size_t> rid_span, const float* pgh,
+void BuildHistSparseKernel(const common::Span<const uint32_t> rid_span, const float* pgh,
                            const T* gradient_index, const uint32_t* disps, const size_t* row_ptr,
                            FPType* hist_data) {
   const size_t size = rid_span.size();
-  const size_t* rid = rid_span.data();
+  const uint32_t* rid = rid_span.data();
   const size_t prefetch_step = getPrefetchStep<T>();
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = row_ptr[rid[i]];
@@ -1024,7 +1024,7 @@ void BuildHistSparseKernel(const common::Span<const size_t> rid_span, const floa
 }
 
 template<typename FPType, bool do_prefetch, typename T>
-void BuildHistKernel(const common::Span<const size_t> rid_span, const float* pgh,
+void BuildHistKernel(const common::Span<const uint32_t> rid_span, const float* pgh,
                      const T* gradient_index, const uint32_t* disps, const size_t* row_ptr, const bool isDense,
                      FPType* hist_data) {
   if (rid_span.size() && isDense) {
@@ -1045,7 +1045,7 @@ void GHistBuilder::BuildHist(const std::vector<GradientPair>& gpair,
                              const size_t* row_ptr,
                              GHistRow hist,
                              bool isDense) {
-  const size_t* rid =  row_indices.begin;
+  const uint32_t* rid =  row_indices.begin;
   const size_t nrows = row_indices.Size();
   //const T* index = gmat.index.data();
   //const size_t* row_ptr =  gmat.row_ptr.data();
@@ -1060,11 +1060,11 @@ void GHistBuilder::BuildHist(const std::vector<GradientPair>& gpair,
 
   if (contiguousBlock) {
     // contiguous memory access, built-in HW prefetching is enough
-    const common::Span<const size_t> rid_span(rid, rid + nrows);
+    const common::Span<const uint32_t> rid_span(rid, rid + nrows);
     BuildHistKernel<FPType, false, T>(rid_span, pgh, index, disps, row_ptr, isDense, hist_data);
   } else {
-    const common::Span<const size_t> rid_span_1(rid, rid + nrows - no_prefetch_size);
-    const common::Span<const size_t> rid_span_2(rid + nrows - no_prefetch_size, rid + nrows);
+    const common::Span<const uint32_t> rid_span_1(rid, rid + nrows - no_prefetch_size);
+    const common::Span<const uint32_t> rid_span_2(rid + nrows - no_prefetch_size, rid + nrows);
     BuildHistKernel<FPType, true, T>(rid_span_1, pgh, index, disps,
                                   row_ptr, isDense, hist_data);
     // no prefetching to avoid loading extra memory
@@ -1095,7 +1095,7 @@ void GHistBuilder::BuildBlockHist(const std::vector<GradientPair>& gpair,
     auto gmat = gmatb[bid];
 
     for (size_t i = 0; i < nrows - rest; i += kUnroll) {
-      size_t rid[kUnroll];
+      uint32_t rid[kUnroll];
       size_t ibegin[kUnroll];
       size_t iend[kUnroll];
       GradientPair stat[kUnroll];
