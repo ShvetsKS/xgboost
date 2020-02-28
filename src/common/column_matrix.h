@@ -147,8 +147,8 @@ class ColumnMatrix {
     std::vector<size_t> num_nonzeros;
     num_nonzeros.resize(nfeature);
     std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
-    uint32_t* index = gmat.index.data<uint32_t>();
-    uint32_t* disp = gmat.index.disp();
+    uint8_t* index = gmat.index.data<uint8_t>();
+    uint8_t* disp = gmat.index.disp();
     for (size_t rid = 0; rid < nrow; ++rid) {
       const size_t ibegin = gmat.row_ptr[rid];
       const size_t iend = gmat.row_ptr[rid + 1];
