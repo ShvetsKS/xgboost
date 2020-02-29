@@ -1144,3 +1144,4 @@ void GHistBuilder::SubtractionTrick(GHistRow self, GHistRow sibling, GHistRow pa
 
 }  // namespace common
 }  // namespace xgboost
+// namespace xgboost
