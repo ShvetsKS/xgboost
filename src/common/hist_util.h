@@ -200,7 +200,7 @@ size_t DeviceSketch(int device,
 
 enum BinBounds
 {
-  POWER_OF_TWO_8,
+  POWER_OF_TWO_8 = 0,
   POWER_OF_TWO_16,
   POWER_OF_TWO_32,
 };

@@ -822,7 +822,7 @@ template<bool default_left>
 inline std::pair<size_t, size_t> PartitionSparseKernel(const size_t* rid,
     const uint8_t* idx, const uint32_t offset, const int32_t split_cond,
     const size_t istart, const size_t iend, size_t* p_left, size_t* p_right,
-    bst_uint lower_bound, bst_uint upper_bound, const Column& column) {
+    bst_uint lower_bound, bst_uint upper_bound, const Column<uint8_t>& column) {
 
   size_t ileft = 0;
   size_t iright = 0;
@@ -885,7 +885,7 @@ void QuantileHistMaker::Builder::PartitionKernel(
 
   const bst_uint fid = tree[nid].SplitIndex();
   const bool default_left = tree[nid].DefaultLeft();
-  const auto column = column_matrix.GetColumn(fid);
+  const auto column = column_matrix.GetColumn<uint8_t>(fid);
   const uint8_t* idx = column.GetFeatureBinIdxPtr();
   const uint32_t offset = column.GetBaseIdx();
 

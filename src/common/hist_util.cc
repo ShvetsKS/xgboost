@@ -666,7 +666,7 @@ std::cout << "GHistIndexMatrix::Init hit_count: time: " << (double)(t2 - t1)/(do
 }
 
 static size_t GetConflictCount(const std::vector<bool>& mark,
-                               const Column& column,
+                               const Column<uint8_t>& column,
                                size_t max_cnt) {
   size_t ret = 0;
   if (column.GetType() == xgboost::common::kDenseColumn) {
@@ -692,7 +692,7 @@ static size_t GetConflictCount(const std::vector<bool>& mark,
 }
 
 inline void
-MarkUsed(std::vector<bool>* p_mark, const Column& column) {
+MarkUsed(std::vector<bool>* p_mark, const Column<uint8_t>& column) {
   std::vector<bool>& mark = *p_mark;
   if (column.GetType() == xgboost::common::kDenseColumn) {
     for (size_t i = 0; i < column.Size(); ++i) {
@@ -726,7 +726,7 @@ FindGroups(const std::vector<unsigned>& feature_list,
     = static_cast<size_t>(param.max_conflict_rate * nrow);
 
   for (auto fid : feature_list) {
-    const Column& column = colmat.GetColumn(fid);
+    const Column<uint8_t>& column = colmat.GetColumn<uint8_t>(fid);
 
     const size_t cur_fid_nnz = feature_nnz[fid];
     bool need_new_group = true;
