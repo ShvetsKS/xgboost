@@ -86,12 +86,14 @@ class ColumnMatrix {
       CHECK_LE(gmat.cut.Ptrs()[fid + 1] - gmat.cut.Ptrs()[fid], max_val);
     }
 
+    bool all_dense = true;
     gmat.GetFeatureCounts(&feature_counts_[0]);
     // classify features
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       if (static_cast<double>(feature_counts_[fid])
                  < sparse_threshold * nrow) {
         type_[fid] = kSparseColumn;
+        all_dense = false;
       } else {
         type_[fid] = kDenseColumn;
       }
@@ -117,6 +119,8 @@ class ColumnMatrix {
     }
     type_size_ = 1 << gmat.index.getBinBound();
     index_.resize(boundary_[nfeature - 1].index_end * type_size_);
+    if(!all_dense)
+      row_ind_.resize(boundary_[nfeature - 1].row_ind_end);
 
     // store least bin id for each feature
     index_base_.resize(nfeature);
@@ -125,7 +129,6 @@ class ColumnMatrix {
     }
 
     // pre-fill index_ for dense columns
-    bool all_dense = true;
     #pragma omp parallel for
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       if (type_[fid] == kDenseColumn) {
@@ -135,70 +138,36 @@ class ColumnMatrix {
         std::fill(begin, end, std::numeric_limits<uint8_t>::max());
         // max() indicates missing values
       }
-      else
-      {
-        all_dense = false;
-      }
     }
 
-    if(!all_dense)
-      row_ind_.resize(boundary_[nfeature - 1].row_ind_end);
-    // loop over all rows and fill column entries
-    // num_nonzeros[fid] = how many nonzeros have this feature accumulated so far?
-    std::vector<size_t> num_nonzeros;
-    num_nonzeros.resize(nfeature);
-    std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
-    if(gmat.index.getBinBound() == POWER_OF_TWO_8)
+    if(all_dense)
     {
-      uint8_t* index = gmat.index.data<uint8_t>();
-      for (size_t rid = 0; rid < nrow; ++rid) {
-        const size_t ibegin = gmat.row_ptr[rid];
-        const size_t iend = gmat.row_ptr[rid + 1];
-        size_t fid = 0;
-        size_t jp = 0;
-        for (size_t i = ibegin; i < iend; ++i) {
-          //const uint32_t bin_id = index[i] + disp[jp];//gmat.index[i];
-          //auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
-          //                             gmat.cut.Ptrs().cend(), bin_id);
-          //fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
-          //if (type_[fid] == kDenseColumn) {
-            uint8_t* begin = &index_[boundary_[jp].index_begin];
-            begin[rid] = index[i];//bin_id - index_base_[fid];
-          ++jp;
-  /*        } else {
-            uint8_t* begin = &index_[boundary_[fid].index_begin];
-            begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
-            row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
-            ++num_nonzeros[fid];
-          }*/
-        }
+      switch(gmat.index.getBinBound())
+      {
+        case POWER_OF_TWO_8:
+          SetIndexAllDense(gmat.index.data<uint8_t>(), gmat, nrow);
+          break;
+        case POWER_OF_TWO_16:
+          SetIndexAllDense(gmat.index.data<uint16_t>(), gmat, nrow);
+          break;
+        case POWER_OF_TWO_32:
+          SetIndexAllDense(gmat.index.data<uint32_t>(), gmat, nrow);
+          break;
       }
     }
     else
     {
-      uint32_t* index = gmat.index.data<uint32_t>();
-      uint32_t* local_index = (uint32_t*)(&index_[0]);
-      for (size_t rid = 0; rid < nrow; ++rid) {
-        const size_t ibegin = gmat.row_ptr[rid];
-        const size_t iend = gmat.row_ptr[rid + 1];
-        size_t fid = 0;
-        size_t jp = 0;
-        for (size_t i = ibegin; i < iend; ++i) {
-          //const uint32_t bin_id = index[i] + disp[jp];//gmat.index[i];
-          //auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
-          //                             gmat.cut.Ptrs().cend(), bin_id);
-          //fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
-          //if (type_[fid] == kDenseColumn) {
-            uint32_t* begin = &local_index[boundary_[jp].index_begin * type_size_];
-            begin[rid] = index[i];//bin_id - index_base_[fid];
-          ++jp;
-  /*        } else {
-            uint8_t* begin = &index_[boundary_[fid].index_begin];
-            begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
-            row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
-            ++num_nonzeros[fid];
-          }*/
-        }
+      switch(gmat.index.getBinBound())
+      {
+        case POWER_OF_TWO_8:
+          SetIndex(gmat.index.data<uint8_t>(), gmat, nrow, nfeature);
+          break;
+        case POWER_OF_TWO_16:
+          SetIndex(gmat.index.data<uint16_t>(), gmat, nrow, nfeature);
+          break;
+        case POWER_OF_TWO_32:
+          SetIndex(gmat.index.data<uint32_t>(), gmat, nrow, nfeature);
+          break;
       }
     }
   }
@@ -214,6 +183,56 @@ class ColumnMatrix {
     return c;
   }
 
+  template<typename T>
+  inline void SetIndexAllDense(T* index, const GHistIndexMatrix& gmat,  const size_t nrow)
+  {
+    T* local_index = (T*)(&index_[0]);
+    for (size_t rid = 0; rid < nrow; ++rid) {
+      const size_t ibegin = gmat.row_ptr[rid];
+      const size_t iend = gmat.row_ptr[rid + 1];
+      size_t fid = 0;
+      size_t jp = 0;
+      for (size_t i = ibegin; i < iend; ++i, ++jp) {
+          T* begin = &local_index[boundary_[jp].index_begin];
+          begin[rid] = index[i];
+      }
+    }
+  }
+  template<typename T>
+  inline void SetIndex(T* index, const GHistIndexMatrix& gmat, const size_t nrow, const size_t nfeature)
+  {
+    std::vector<size_t> num_nonzeros;
+    num_nonzeros.resize(nfeature);
+    std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
+
+    T* local_index = (T*)(&index_[0]);
+    for (size_t rid = 0; rid < nrow; ++rid) {
+        const size_t ibegin = gmat.row_ptr[rid];
+        const size_t iend = gmat.row_ptr[rid + 1];
+        size_t fid = 0;
+        size_t jp = 0;
+        for (size_t i = ibegin; i < iend; ++i) {
+          const uint32_t bin_id = index[i] + index_base_[jp];
+          auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
+                                       gmat.cut.Ptrs().cend(), bin_id);
+          fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
+          if (type_[fid] == kDenseColumn) {
+            T* begin = &local_index[boundary_[jp].index_begin];
+            begin[rid] = index[i];
+          ++jp;
+          } else {
+            T* begin = &local_index[boundary_[fid].index_begin];
+            begin[num_nonzeros[fid]] = index[i];//bin_id - index_base_[fid];
+            row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
+            ++num_nonzeros[fid];
+          }
+        }
+      }
+  }
+  const size_t GetTypeSize() const
+  {
+    return type_size_;
+  }
  private:
   struct ColumnBoundary {
     // indicate where each column's index and row_ind is stored.

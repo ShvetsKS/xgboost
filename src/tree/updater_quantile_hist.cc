@@ -788,16 +788,16 @@ void QuantileHistMaker::Builder::EvaluateSplits(const std::vector<ExpandEntry>& 
   builder_monitor_.Stop("EvaluateSplits");
 }
 
-template <bool default_left>
+template <bool default_left, typename T>
 inline std::pair<size_t, size_t> PartitionDenseKernel(
-    const size_t *rid, const uint8_t *idx,
+    const size_t *rid, const T *idx,
     const uint32_t offset, const int32_t split_cond,
     const size_t istart, const size_t iend, size_t *p_left,
     size_t *p_right) {
   size_t ileft = 0;
   size_t iright = 0;
 
-  const uint8_t max_val = std::numeric_limits<uint8_t>::max();
+  const T max_val = std::numeric_limits<T>::max();
 
   for (size_t i = istart; i < iend; i++) {
     if (idx[rid[i]] == max_val) {
@@ -818,11 +818,11 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(
   return { ileft, iright };
 }
 
-template<bool default_left>
+template<bool default_left, typename T>
 inline std::pair<size_t, size_t> PartitionSparseKernel(const size_t* rid,
-    const uint8_t* idx, const uint32_t offset, const int32_t split_cond,
+    const uint32_t offset, const int32_t split_cond,
     const size_t istart, const size_t iend, size_t* p_left, size_t* p_right,
-    bst_uint lower_bound, bst_uint upper_bound, const Column<uint8_t>& column) {
+    bst_uint lower_bound, bst_uint upper_bound, const Column<T>& column) {
 
   size_t ileft = 0;
   size_t iright = 0;
@@ -875,6 +875,7 @@ inline std::pair<size_t, size_t> PartitionSparseKernel(const size_t* rid,
   return {ileft, iright};
 }
 
+template <typename T>
 void QuantileHistMaker::Builder::PartitionKernel(
     const size_t node_in_set, const size_t nid, common::Range1d range,
     const int32_t split_cond, const ColumnMatrix& column_matrix,
@@ -885,18 +886,18 @@ void QuantileHistMaker::Builder::PartitionKernel(
 
   const bst_uint fid = tree[nid].SplitIndex();
   const bool default_left = tree[nid].DefaultLeft();
-  const auto column = column_matrix.GetColumn<uint8_t>(fid);
-  const uint8_t* idx = column.GetFeatureBinIdxPtr();
+  const auto column = column_matrix.GetColumn<T>(fid);
+  //const uint8_t* idx = column.GetFeatureBinIdxPtr();
   const uint32_t offset = column.GetBaseIdx();
 
   std::pair<size_t, size_t> child_nodes_sizes;
 
   if (column.GetType() == xgboost::common::kDenseColumn) {
     if (default_left) {
-      child_nodes_sizes = PartitionDenseKernel<true>(rid, idx, offset, split_cond,
+      child_nodes_sizes = PartitionDenseKernel<true>(rid, column.GetFeatureBinIdxPtr(), offset, split_cond,
                                                      range.begin(), range.end(), p_left, p_right);
     } else {
-      child_nodes_sizes = PartitionDenseKernel<false>(rid, idx, offset, split_cond,
+      child_nodes_sizes = PartitionDenseKernel<false>(rid, column.GetFeatureBinIdxPtr(), offset, split_cond,
                                                       range.begin(), range.end(), p_left, p_right);
     }
   } else {
@@ -905,11 +906,11 @@ void QuantileHistMaker::Builder::PartitionKernel(
 
     if (default_left) {
       child_nodes_sizes = PartitionSparseKernel<true>(
-          rid, idx, offset, split_cond,
+          rid, offset, split_cond,
           range.begin(), range.end(), p_left, p_right, lower_bound, upper_bound, column);
     } else {
       child_nodes_sizes = PartitionSparseKernel<false>(
-          rid, idx, offset, split_cond,
+          rid, offset, split_cond,
           range.begin(), range.end(), p_left, p_right, lower_bound, upper_bound, column);
     }
   }
@@ -992,11 +993,31 @@ void QuantileHistMaker::Builder::ApplySplit(const std::vector<ExpandEntry> nodes
 
   // 2.3 Split elements of row_set_collection_ to left and right child-nodes for each node
   // Store results in intermediate buffers from partition_builder_
-  common::ParallelFor2d(space, this->nthread_, [&](size_t node_in_set, common::Range1d r) {
-    const int32_t nid = nodes[node_in_set].nid;
-    PartitionKernel(node_in_set, nid, r,
+  switch(gmat.index.getBinBound())
+  {
+    case common::POWER_OF_TWO_8:
+        common::ParallelFor2d(space, this->nthread_, [&](size_t node_in_set, common::Range1d r) {
+          const int32_t nid = nodes[node_in_set].nid;
+          PartitionKernel<uint8_t>(node_in_set, nid, r,
                     split_conditions[node_in_set], column_matrix, gmat, *p_tree);
-  });
+        });
+        break;
+    case common::POWER_OF_TWO_16:
+        common::ParallelFor2d(space, this->nthread_, [&](size_t node_in_set, common::Range1d r) {
+          const int32_t nid = nodes[node_in_set].nid;
+          PartitionKernel<uint16_t>(node_in_set, nid, r,
+                    split_conditions[node_in_set], column_matrix, gmat, *p_tree);
+        });
+        break;
+    case common::POWER_OF_TWO_32:
+        common::ParallelFor2d(space, this->nthread_, [&](size_t node_in_set, common::Range1d r) {
+          const int32_t nid = nodes[node_in_set].nid;
+          PartitionKernel<uint32_t>(node_in_set, nid, r,
+                    split_conditions[node_in_set], column_matrix, gmat, *p_tree);
+        });
+        break;
+  }
+
 
   // 3. Compute offsets to copy blocks of row-indexes
   // from partition_builder_ to row_set_collection_

@@ -665,8 +665,9 @@ std::cout << "GHistIndexMatrix::Init hit_count: time: " << (double)(t2 - t1)/(do
   }
 }
 
+template <typename T>
 static size_t GetConflictCount(const std::vector<bool>& mark,
-                               const Column<uint8_t>& column,
+                               const Column<T>& column,
                                size_t max_cnt) {
   size_t ret = 0;
   if (column.GetType() == xgboost::common::kDenseColumn) {
@@ -691,8 +692,9 @@ static size_t GetConflictCount(const std::vector<bool>& mark,
   return ret;
 }
 
+template <typename T>
 inline void
-MarkUsed(std::vector<bool>* p_mark, const Column<uint8_t>& column) {
+MarkUsed(std::vector<bool>* p_mark, const Column<T>& column) {
   std::vector<bool>& mark = *p_mark;
   if (column.GetType() == xgboost::common::kDenseColumn) {
     for (size_t i = 0; i < column.Size(); ++i) {
@@ -726,7 +728,6 @@ FindGroups(const std::vector<unsigned>& feature_list,
     = static_cast<size_t>(param.max_conflict_rate * nrow);
 
   for (auto fid : feature_list) {
-    const Column<uint8_t>& column = colmat.GetColumn<uint8_t>(fid);
 
     const size_t cur_fid_nnz = feature_nnz[fid];
     bool need_new_group = true;
@@ -743,33 +744,95 @@ FindGroups(const std::vector<unsigned>& feature_list,
       search_groups.resize(param.max_search_group);
     }
 
-    // examine each candidate group: is it okay to insert fid?
-    for (auto gid : search_groups) {
-      const size_t rest_max_cnt = max_conflict_cnt - group_conflict_cnt[gid];
-      const size_t cnt = GetConflictCount(conflict_marks[gid], column, rest_max_cnt);
-      if (cnt <= rest_max_cnt) {
-        need_new_group = false;
-        groups[gid].push_back(fid);
-        group_conflict_cnt[gid] += cnt;
-        group_nnz[gid] += cur_fid_nnz - cnt;
-        MarkUsed(&conflict_marks[gid], column);
-        break;
-      }
+
+      if(colmat.GetTypeSize() == 1)
+{
+        const Column<uint8_t>& column1 = colmat.GetColumn<uint8_t>(fid);
+        // examine each candidate group: is it okay to insert fid?
+        for (auto gid : search_groups) {
+          const size_t rest_max_cnt = max_conflict_cnt - group_conflict_cnt[gid];
+          const size_t cnt = GetConflictCount(conflict_marks[gid], column1, rest_max_cnt);
+          if (cnt <= rest_max_cnt) {
+            need_new_group = false;
+            groups[gid].push_back(fid);
+            group_conflict_cnt[gid] += cnt;
+            group_nnz[gid] += cur_fid_nnz - cnt;
+            MarkUsed(&conflict_marks[gid], column1);
+            break;
+          }
+        }
+        // create new group if necessary
+        if (need_new_group) {
+          groups.emplace_back();
+          groups.back().push_back(fid);
+          group_conflict_cnt.push_back(0);
+          conflict_marks.emplace_back(nrow, false);
+          MarkUsed(&conflict_marks.back(), column1);
+          group_nnz.emplace_back(cur_fid_nnz);
+        }
+}
+if(colmat.GetTypeSize() == 2)
+{       const Column<uint16_t>& column2 = colmat.GetColumn<uint16_t>(fid);
+        // examine each candidate group: is it okay to insert fid?
+        for (auto gid : search_groups) {
+          const size_t rest_max_cnt = max_conflict_cnt - group_conflict_cnt[gid];
+          const size_t cnt = GetConflictCount(conflict_marks[gid], column2, rest_max_cnt);
+          if (cnt <= rest_max_cnt) {
+            need_new_group = false;
+            groups[gid].push_back(fid);
+            group_conflict_cnt[gid] += cnt;
+            group_nnz[gid] += cur_fid_nnz - cnt;
+            MarkUsed(&conflict_marks[gid], column2);
+            break;
+          }
+        }
+        // create new group if necessary
+        if (need_new_group) {
+          groups.emplace_back();
+          groups.back().push_back(fid);
+          group_conflict_cnt.push_back(0);
+          conflict_marks.emplace_back(nrow, false);
+          MarkUsed(&conflict_marks.back(), column2);
+          group_nnz.emplace_back(cur_fid_nnz);
+        }
+}
+if(colmat.GetTypeSize() == 4)
+{        const Column<uint32_t>& column4 = colmat.GetColumn<uint32_t>(fid);
+        // examine each candidate group: is it okay to insert fid?
+        for (auto gid : search_groups) {
+          const size_t rest_max_cnt = max_conflict_cnt - group_conflict_cnt[gid];
+          const size_t cnt = GetConflictCount(conflict_marks[gid], column4, rest_max_cnt);
+          if (cnt <= rest_max_cnt) {
+            need_new_group = false;
+            groups[gid].push_back(fid);
+            group_conflict_cnt[gid] += cnt;
+            group_nnz[gid] += cur_fid_nnz - cnt;
+            MarkUsed(&conflict_marks[gid], column4);
+            break;
+          }
+        }
+        // create new group if necessary
+        if (need_new_group) {
+          groups.emplace_back();
+          groups.back().push_back(fid);
+          group_conflict_cnt.push_back(0);
+          conflict_marks.emplace_back(nrow, false);
+          MarkUsed(&conflict_marks.back(), column4);
+          group_nnz.emplace_back(cur_fid_nnz);
+        }
     }
 
-    // create new group if necessary
-    if (need_new_group) {
-      groups.emplace_back();
-      groups.back().push_back(fid);
-      group_conflict_cnt.push_back(0);
-      conflict_marks.emplace_back(nrow, false);
-      MarkUsed(&conflict_marks.back(), column);
-      group_nnz.emplace_back(cur_fid_nnz);
-    }
   }
 
   return groups;
 }
+
+/*template <typename T>
+inline void SetGroup(const size_t max_conflict_cnt, std::vector<size_t>& search_groups,
+  std::vector<size_t>& group_conflict_cnt, std::vector<std::vector<bool>>& conflict_marks)
+{
+
+}*/
 
 inline std::vector<std::vector<unsigned>>
 FastFeatureGrouping(const GHistIndexMatrix& gmat,
