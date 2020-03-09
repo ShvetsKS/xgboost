@@ -35,6 +35,7 @@ void GHistIndexMatrix::SetIndexData(BinIdxType* const index_data, size_t batch_t
                                     const SparsePage& batch, size_t rbegin,
                                     const uint32_t* disps, size_t nbins) {
 //std::cout << "\nGHistIndexMatrix::SetIndexData started!!!\n";
+//std::cout << "\nGHistIndexMatrix:\n";
   #pragma omp parallel for num_threads(batch_threads) schedule(static)
     for (omp_ulong i = 0; i < batch.Size(); ++i) {
       const int tid = omp_get_thread_num();
