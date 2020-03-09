@@ -220,9 +220,9 @@ class ColumnMatrix {
   template<typename T>
   inline void SetIndex(T* index, uint32_t* disp, const GHistIndexMatrix& gmat,
                        const size_t nrow, const size_t nfeature) {
-std::cout << "\nSetIndex started 1 !!! \n";
+//std::cout << "\nSetIndex started 1 !!! \n";
     const SparsePage& batch = *(gmat.p_fmat_->GetBatches<SparsePage>().begin());
-std::cout << "\nSetIndex started 2 !!! \n";
+//std::cout << "\nSetIndex started 2 !!! \n";
 
     std::vector<size_t> num_nonzeros;
     num_nonzeros.resize(nfeature);
@@ -286,7 +286,7 @@ std::cout << "\nSetIndex started 2 !!! \n";
         }
       }
     }*/
-std::cout << "\nSetIndex finished !!! \n";
+//std::cout << "\nSetIndex finished !!! \n";
 
   }
   const size_t GetTypeSize() const {
