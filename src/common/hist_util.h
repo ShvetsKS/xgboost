@@ -308,6 +308,7 @@ struct GHistIndexMatrix {
   std::vector<size_t> hit_count;
   /*! \brief The corresponding cuts */
   HistogramCuts cut;
+  DMatrix* p_fmat_;
   // Create a global histogram matrix, given cut
   void Init(DMatrix* p_fmat, int max_num_bins);
 

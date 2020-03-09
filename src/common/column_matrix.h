@@ -220,6 +220,10 @@ class ColumnMatrix {
   template<typename T>
   inline void SetIndex(T* index, uint32_t* disp, const GHistIndexMatrix& gmat,
                        const size_t nrow, const size_t nfeature) {
+std::cout << "\nSetIndex started 1 !!! \n";
+    const SparsePage& batch = *(gmat.p_fmat_->GetBatches<SparsePage>().begin());
+std::cout << "\nSetIndex started 2 !!! \n";
+
     std::vector<size_t> num_nonzeros;
     num_nonzeros.resize(nfeature);
     std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
@@ -239,10 +243,12 @@ class ColumnMatrix {
     for (size_t rid = 0; rid < nrow; ++rid) {
         const size_t ibegin = gmat.row_ptr[rid];
         const size_t iend = gmat.row_ptr[rid + 1];
+        SparsePage::Inst inst = batch[rid];
         size_t fid = 0;
+
         size_t jp = 0;
         for (size_t i = ibegin; i < iend; ++i) {
-          const uint32_t bin_id = index[i] + disp[jp];
+          const uint32_t bin_id = index[i] + disp[inst[jp].index];
 //          std::cout << bin_id << "   ";
           auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
                                        gmat.cut.Ptrs().cend(), bin_id);
@@ -280,6 +286,8 @@ class ColumnMatrix {
         }
       }
     }*/
+std::cout << "\nSetIndex finished !!! \n";
+
   }
   const size_t GetTypeSize() const {
     return type_size_;
