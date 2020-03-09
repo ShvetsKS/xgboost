@@ -164,7 +164,6 @@ class ColumnMatrix {
     } else {
       switch (gmat.index.getBinBound()) {
         case POWER_OF_TWO_8:
-        std::cout << "\n\n";
           SetIndex(gmat.index.data<uint8_t>(), gmat.index.disp(), gmat, nrow, nfeature);
           break;
         case POWER_OF_TWO_16:
@@ -221,7 +220,7 @@ class ColumnMatrix {
   template<typename T>
   inline void SetIndex(T* index, uint32_t* disp, const GHistIndexMatrix& gmat,
                        const size_t nrow, const size_t nfeature) {
-std::cout << "\nSetIndex started 1 !!! \n";
+//std::cout << "\nSetIndex started 1 !!! \n";
     const SparsePage& batch = *(gmat.p_fmat_->GetBatches<SparsePage>().begin());
 //std::cout << "\nSetIndex started 2 !!! \n";
 
@@ -250,11 +249,13 @@ std::cout << "\nSetIndex started 1 !!! \n";
         size_t jp = 0;
         for (size_t i = ibegin; i < iend; ++i) {
           const uint32_t bin_id = index[i] + disp[inst[jp].index];
-std::cout << bin_id <<"   ";
+//std::cout << bin_id <<"   ";
 //          std::cout << bin_id << "   ";
-          auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
-                                       gmat.cut.Ptrs().cend(), bin_id);
-          fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
+          //auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
+          //                             gmat.cut.Ptrs().cend(), bin_id);
+          fid = inst[jp].index;//std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
+          //if(rid < 1)
+          //  std::cout << inst[jp].index << "   " << fid << "\n";
           if (type_[fid] == kDenseColumn) {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[rid] = bin_id - index_base_[fid];
@@ -267,7 +268,7 @@ std::cout << bin_id <<"   ";
           ++jp;
         }
       }
-std::cout << "\n";
+//std::cout << "\n";
 /*
     for (size_t rid = 0; rid < nrow; ++rid) {
       const size_t ibegin = gmat.row_ptr[rid];
