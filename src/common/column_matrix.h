@@ -29,7 +29,7 @@ template <typename T>
 class Column {
  public:
   Column(ColumnType type, const T* index, uint32_t index_base,
-         const size_t* row_ind, size_t len, const char* missing_flags)
+         const size_t* row_ind, size_t len, const uint8_t* missing_flags)
       : type_(type),
         index_(index),
         index_base_(index_base),
@@ -54,7 +54,7 @@ class Column {
   }
   const size_t* GetRowData() const { return row_ind_; }
 
-  const char* missing_flags_;
+  const uint8_t* missing_flags_;
  private:
   ColumnType type_;
   const T* index_;
@@ -143,19 +143,17 @@ class ColumnMatrix {
 
     // pre-fill index_ for dense columns
 
+missing_flags_.resize(boundary_[nfeature - 1].index_end);
     #pragma omp parallel for
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       if (type_[fid] == kDenseColumn) {
         const size_t ibegin = boundary_[fid].index_begin;
-        uint8_t* begin = &index_[ibegin * type_size_];
-        uint8_t* end = begin + nrow * type_size_;
-        std::fill(begin, end, std::numeric_limits<uint8_t>::max());
+        uint8_t* begin = &missing_flags_[ibegin];
+        uint8_t* end = begin + nrow;
+        std::fill(begin, end, 1);
         // max() indicates missing values
       }
     }
-missing_flags_.resize(boundary_[nfeature - 1].index_end);
-for(size_t i = 0; i < missing_flags_.size(); ++i)
-  missing_flags_[i] = 1;
 
     // loop over all rows and fill column entries
     // num_nonzeros[fid] = how many nonzeros have this feature accumulated so far?
@@ -178,9 +176,9 @@ for(size_t i = 0; i < missing_flags_.size(); ++i)
     } else {
       switch (type_size_) {
         case 1:
-          std::cout << "\nSetIndex\n";
+   //       std::cout << "\nSetIndex\n";
           SetIndex<uint8_t>(gmat.index.data<uint32_t>(), gmat, nrow, nfeature);
-          std::cout << "\nSetIndex end\n";
+   //       std::cout << "\nSetIndex end\n";
           break;
         case 2:
           SetIndex<uint16_t>(gmat.index.data<uint32_t>(), gmat, nrow, nfeature);
@@ -216,7 +214,7 @@ for(size_t i = 0; i < missing_flags_.size(); ++i)
           const size_t idx = boundary_[jp].index_begin;
           T* begin = &local_index[idx];
           begin[rid] = index[i];
-          missing_flags_[idx] = 0;
+          missing_flags_[idx + rid] = 0;
       }
     }
   }
@@ -268,15 +266,15 @@ for(size_t i = 0; i < missing_flags_.size(); ++i)
           if (type_[fid] == kDenseColumn) {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[rid] = bin_id - index_base_[fid];
-            std::cout <<  (uint32_t)begin[rid] << "   ";
-            missing_flags_[rid] = 0;
+          //  std::cout <<  (uint32_t)begin[rid] << "   ";
+            missing_flags_[boundary_[fid].index_begin + rid] = 0;
           } else {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
-            std::cout <<  (uint32_t)begin[num_nonzeros[fid]]  << "   ";
+            missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = 0;
+          //  std::cout <<  (uint32_t)begin[num_nonzeros[fid]]  << "   ";
             row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
             ++num_nonzeros[fid];
-            missing_flags_[num_nonzeros[fid]] = 0;
           }
 //          ++jp;
         }
@@ -326,7 +324,7 @@ for(size_t i = 0; i < missing_flags_.size(); ++i)
 
   // index_base_[fid]: least bin id for feature fid
   std::vector<uint32_t> index_base_;
-  std::vector<char> missing_flags_;
+  std::vector<uint8_t> missing_flags_;
   uint32_t type_size_;
 };
 
