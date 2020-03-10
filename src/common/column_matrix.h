@@ -119,16 +119,16 @@ class ColumnMatrix {
       boundary_[fid].row_ind_end = accum_row_ind_;
     }
 
-    type_size_ = 1 << gmat.index.getBinBound();
-/*    std::cout << "\ngmat.max_num_bins_: " << gmat.max_num_bins_ << "\n";
+//    type_size_ = 1 << gmat.index.getBinBound();
+//    std::cout << "\ngmat.max_num_bins_: " << gmat.max_num_bins_ << "\n";
     if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint8_t>::max()) ) {
       type_size_ = 1;
-    std::cout << "\ntype_size_: " << type_size_ << "\n";
+//    std::cout << "\ntype_size_: " << type_size_ << "\n";
     } else if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint16_t>::max())){
       type_size_ = 2;
     } else {
       type_size_ = 4;
-    }*/
+    }
 
     index_.resize(boundary_[nfeature - 1].index_end * type_size_);
     if (!all_dense) {
