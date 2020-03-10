@@ -29,12 +29,13 @@ template <typename T>
 class Column {
  public:
   Column(ColumnType type, const T* index, uint32_t index_base,
-         const size_t* row_ind, size_t len)
+         const size_t* row_ind, size_t len, const char* missing_flags)
       : type_(type),
         index_(index),
         index_base_(index_base),
         row_ind_(row_ind),
-        len_(len) {}
+        len_(len),
+        missing_flags_(missing_flags) {}
   size_t Size() const { return len_; }
   uint32_t GetGlobalBinIdx(size_t idx) const { return index_base_ + (uint32_t)(index_[idx]); }
   T GetFeatureBinIdx(size_t idx) const { return index_[idx]; }
@@ -49,10 +50,11 @@ class Column {
     return type_ == ColumnType::kDenseColumn ? idx : row_ind_[idx];  // NOLINT
   }
   bool IsMissing(size_t idx) const {
-    return index_[idx] == std::numeric_limits<T>::max();
+    return missing_flags_[idx] == 1;//index_[idx] == std::numeric_limits<T>::max();
   }
   const size_t* GetRowData() const { return row_ind_; }
 
+  const char* missing_flags_;
  private:
   ColumnType type_;
   const T* index_;
@@ -117,8 +119,17 @@ class ColumnMatrix {
       boundary_[fid].row_ind_end = accum_row_ind_;
     }
 
-    index_.resize(boundary_[nfeature - 1].index_end);
     type_size_ = 1 << gmat.index.getBinBound();
+/*    std::cout << "\ngmat.max_num_bins_: " << gmat.max_num_bins_ << "\n";
+    if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint8_t>::max()) ) {
+      type_size_ = 1;
+    std::cout << "\ntype_size_: " << type_size_ << "\n";
+    } else if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint16_t>::max())){
+      type_size_ = 2;
+    } else {
+      type_size_ = 4;
+    }*/
+
     index_.resize(boundary_[nfeature - 1].index_end * type_size_);
     if (!all_dense) {
       row_ind_.resize(boundary_[nfeature - 1].row_ind_end);
@@ -142,12 +153,15 @@ class ColumnMatrix {
         // max() indicates missing values
       }
     }
+missing_flags_.resize(boundary_[nfeature - 1].index_end);
+for(size_t i = 0; i < missing_flags_.size(); ++i)
+  missing_flags_[i] = 1;
 
     // loop over all rows and fill column entries
     // num_nonzeros[fid] = how many nonzeros have this feature accumulated so far?
-    std::vector<size_t> num_nonzeros;
-    num_nonzeros.resize(nfeature);
-    std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
+    //std::vector<size_t> num_nonzeros;
+    //num_nonzeros.resize(nfeature);
+    //std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
 
     if (all_dense) {
       switch (gmat.index.getBinBound()) {
@@ -162,15 +176,17 @@ class ColumnMatrix {
           break;
       }
     } else {
-      switch (gmat.index.getBinBound()) {
-        case POWER_OF_TWO_8:
-          SetIndex(gmat.index.data<uint8_t>(), gmat.index.disp(), gmat, nrow, nfeature);
+      switch (type_size_) {
+        case 1:
+          std::cout << "\nSetIndex\n";
+          SetIndex<uint8_t>(gmat.index.data<uint32_t>(), gmat, nrow, nfeature);
+          std::cout << "\nSetIndex end\n";
           break;
-        case POWER_OF_TWO_16:
-          SetIndex(gmat.index.data<uint16_t>(), gmat.index.disp(), gmat, nrow, nfeature);
+        case 2:
+          SetIndex<uint16_t>(gmat.index.data<uint32_t>(), gmat, nrow, nfeature);
           break;
-        case POWER_OF_TWO_32:
-          SetIndex(gmat.index.data<uint32_t>(), gmat.index.disp(), gmat, nrow, nfeature);
+        case 4:
+          SetIndex<uint32_t>(gmat.index.data<uint32_t>(), gmat, nrow, nfeature);
           break;
       }
     }
@@ -184,7 +200,7 @@ class ColumnMatrix {
                 reinterpret_cast<const T*>(&index_[boundary_[fid].index_begin * type_size_]),
                 index_base_[fid], (type_[fid] == ColumnType::kSparseColumn ?
                 &row_ind_[boundary_[fid].row_ind_begin] : nullptr),
-                boundary_[fid].index_end - boundary_[fid].index_begin);
+                boundary_[fid].index_end - boundary_[fid].index_begin, &missing_flags_[boundary_[fid].index_begin]);
     return c;
   }
 
@@ -197,13 +213,15 @@ class ColumnMatrix {
       size_t fid = 0;
       size_t jp = 0;
       for (size_t i = ibegin; i < iend; ++i, ++jp) {
-          T* begin = &local_index[boundary_[jp].index_begin];
+          const size_t idx = boundary_[jp].index_begin;
+          T* begin = &local_index[idx];
           begin[rid] = index[i];
+          missing_flags_[idx] = 0;
       }
     }
   }
 
-  inline void SetIndexAllDense(uint32_t* index, const GHistIndexMatrix& gmat,  const size_t nrow) {
+/*  inline void SetIndexAllDense(uint32_t* index, const GHistIndexMatrix& gmat,  const size_t nrow) {
     uint32_t* local_index = reinterpret_cast<uint32_t*>(&index_[0]);
     for (size_t rid = 0; rid < nrow; ++rid) {
       const size_t ibegin = gmat.row_ptr[rid];
@@ -215,10 +233,10 @@ class ColumnMatrix {
           begin[rid] = index[i] - index_base_[jp];
       }
     }
-  }
+  }*/
 
   template<typename T>
-  inline void SetIndex(T* index, uint32_t* disp, const GHistIndexMatrix& gmat,
+  inline void SetIndex(uint32_t* index, const GHistIndexMatrix& gmat,
                        const size_t nrow, const size_t nfeature) {
     std::vector<size_t> num_nonzeros;
     num_nonzeros.resize(nfeature);
@@ -240,9 +258,9 @@ class ColumnMatrix {
         const size_t ibegin = gmat.row_ptr[rid];
         const size_t iend = gmat.row_ptr[rid + 1];
         size_t fid = 0;
-        size_t jp = 0;
+//        size_t jp = 0;
         for (size_t i = ibegin; i < iend; ++i) {
-          const uint32_t bin_id = index[i] + disp[jp];
+          const uint32_t bin_id = index[i]/* + disp[jp]*/;
 //          std::cout << bin_id << "   ";
           auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
                                        gmat.cut.Ptrs().cend(), bin_id);
@@ -250,13 +268,17 @@ class ColumnMatrix {
           if (type_[fid] == kDenseColumn) {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[rid] = bin_id - index_base_[fid];
+            std::cout <<  (uint32_t)begin[rid] << "   ";
+            missing_flags_[rid] = 0;
           } else {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
+            std::cout <<  (uint32_t)begin[num_nonzeros[fid]]  << "   ";
             row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
             ++num_nonzeros[fid];
+            missing_flags_[num_nonzeros[fid]] = 0;
           }
-          ++jp;
+//          ++jp;
         }
       }
 /*
@@ -304,6 +326,7 @@ class ColumnMatrix {
 
   // index_base_[fid]: least bin id for feature fid
   std::vector<uint32_t> index_base_;
+  std::vector<char> missing_flags_;
   uint32_t type_size_;
 };
 
