@@ -787,10 +787,10 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(
   size_t nleft_elems = 0;
   size_t nright_elems = 0;
 
-  //const BinIdxType missing_val = std::numeric_limits<BinIdxType>::max();
+  const BinIdxType missing_val = std::numeric_limits<BinIdxType>::max();
 
   for (auto rid : rid_span) {
-    if (/*idx[rid] == missing_val*/missing_val_flag[rid] == 1) {
+    if (idx[rid] == missing_val /*missing_val_flag[rid] == 1*/) {
       std::cout << "\nmissing_val missing_val missing_val missing_val missing_val\n";
       if (default_left) {
         p_left_part[nleft_elems++] = rid;
