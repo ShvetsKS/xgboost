@@ -410,7 +410,7 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_num_bins) {
   hit_count.resize(nbins, 0);
   hit_count_tloc_.resize(nthread * nbins, 0);
 
-
+this->p_fmat_ = p_fmat;
   size_t new_size = 1;
   for (const auto &batch : p_fmat->GetBatches<SparsePage>()) {
     new_size += batch.Size();

@@ -236,6 +236,8 @@ missing_flags_.resize(boundary_[nfeature - 1].index_end);
   template<typename T>
   inline void SetIndex(uint32_t* index, const GHistIndexMatrix& gmat,
                        const size_t nrow, const size_t nfeature) {
+    const SparsePage& batch = *(gmat.p_fmat_->GetBatches<SparsePage>().begin());
+
     std::vector<size_t> num_nonzeros;
     num_nonzeros.resize(nfeature);
     std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
@@ -256,13 +258,17 @@ missing_flags_.resize(boundary_[nfeature - 1].index_end);
         const size_t ibegin = gmat.row_ptr[rid];
         const size_t iend = gmat.row_ptr[rid + 1];
         size_t fid = 0;
-//        size_t jp = 0;
-        for (size_t i = ibegin; i < iend; ++i) {
+        SparsePage::Inst inst = batch[rid];
+
+        size_t jp = 0;
+        for (size_t i = ibegin; i < iend; ++i, ++jp) {
           const uint32_t bin_id = index[i]/* + disp[jp]*/;
 //          std::cout << bin_id << "   ";
-          auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
+/*          auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
                                        gmat.cut.Ptrs().cend(), bin_id);
           fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
+*/
+          fid = inst[jp].index;
           if (type_[fid] == kDenseColumn) {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[rid] = bin_id - index_base_[fid];
