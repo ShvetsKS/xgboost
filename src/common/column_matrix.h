@@ -218,32 +218,20 @@ std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)100
   template<typename T>
   inline void SetIndexAllDense(T* index, const GHistIndexMatrix& gmat,  const size_t nrow, const size_t nfeature) {
     T* local_index = reinterpret_cast<T*>(&index_[0]);
-//    for (size_t rid = 0; rid < nrow; ++rid) {
-//      const size_t ibegin = rid*nfeature;//gmat.row_ptr[rid];
-//      const size_t iend = (rid+1)*nfeature;//gmat.row_ptr[rid + 1];
-////      size_t fid = 0;
-//      size_t jp = 0;
-//      for (size_t i = ibegin; i < iend; ++i, ++jp) {
-//          const size_t idx = jp*nrow;//boundary_[jp].index_begin;
-///*          T* begin = &local_index[idx];
-//          begin[rid] = index[i];*/
-//          local_index[idx + rid] = index[i]; 
-//          missing_flags_[idx + rid] = true;
-//      }
-//    }
     for (size_t rid = 0; rid < nrow; ++rid) {
-      //const size_t ibegin = rid*nfeature;//gmat.row_ptr[rid];
-      //const size_t iend = (rid+1)*nfeature;//gmat.row_ptr[rid + 1];
+      const size_t& ibegin = /*rid*nfeature;*/gmat.row_ptr[rid];
+      const size_t& iend = /*(rid+1)*nfeature;*/gmat.row_ptr[rid + 1];
 //      size_t fid = 0;
-      //size_t jp = 0;
-      for (size_t i = 0; i < nfeature; ++i/*, ++jp*/) {
-
+      size_t jp = 0;
+      for (size_t i = ibegin; i < iend; ++i, ++jp) {
+          const size_t& idx = /*jp*nrow;*/ boundary_[jp].index_begin;
 /*          T* begin = &local_index[idx];
           begin[rid] = index[i];*/
-          local_index[i*nrow + rid] = index[rid*nfeature + i]; 
-          missing_flags_[i*nrow + rid] = true;
+          local_index[idx + rid] = index[i]; 
+          missing_flags_[idx + rid] = true;
       }
     }
+
   }
 
 /*  inline void SetIndexAllDense(uint32_t* index, const GHistIndexMatrix& gmat,  const size_t nrow) {
