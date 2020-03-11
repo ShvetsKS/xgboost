@@ -231,12 +231,12 @@ std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)100
 //          missing_flags_[idx + rid] = true;
 //      }
 //    }
-    for (size_t i = 0; i < nfeature; ++i/*, ++jp*/) {
+    for (size_t rid = 0; rid < nrow; ++rid) {
       //const size_t ibegin = rid*nfeature;//gmat.row_ptr[rid];
       //const size_t iend = (rid+1)*nfeature;//gmat.row_ptr[rid + 1];
 //      size_t fid = 0;
       //size_t jp = 0;
-      for (size_t rid = 0; rid < nrow; ++rid) {
+      for (size_t i = 0; i < nfeature; ++i/*, ++jp*/) {
 
 /*          T* begin = &local_index[idx];
           begin[rid] = index[i];*/
