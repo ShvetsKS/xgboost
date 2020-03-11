@@ -76,7 +76,7 @@ class ColumnMatrix {
   inline void Init(const GHistIndexMatrix& gmat,
                    double  sparse_threshold) {
     const int32_t nfeature = static_cast<int32_t>(gmat.cut.Ptrs().size() - 1);
-    nrow = gmat.row_ptr.size() - 1;
+    const size_t nrow = gmat.row_ptr.size() - 1;
 
     // identify type of each column
     feature_counts_.resize(nfeature);
@@ -87,7 +87,7 @@ class ColumnMatrix {
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       CHECK_LE(gmat.cut.Ptrs()[fid + 1] - gmat.cut.Ptrs()[fid], max_val);
     }
-    all_dense = gmat.IsDense();
+    bool all_dense = gmat.IsDense();
     gmat.GetFeatureCounts(&feature_counts_[0]);
     // classify features
     for (int32_t fid = 0; fid < nfeature; ++fid) {
@@ -102,9 +102,6 @@ class ColumnMatrix {
 
     // want to compute storage boundary for each feature
     // using variants of prefix sum scan
-
-if(!all_dense)
-{
     boundary_.resize(nfeature);
     size_t accum_index_ = 0;
     size_t accum_row_ind_ = 0;
@@ -121,7 +118,6 @@ if(!all_dense)
       boundary_[fid].index_end = accum_index_;
       boundary_[fid].row_ind_end = accum_row_ind_;
     }
-}
 
 //    type_size_ = 1 << gmat.index.getBinBound();
 //    std::cout << "\ngmat.max_num_bins_: " << gmat.max_num_bins_ << "\n";
@@ -133,12 +129,10 @@ if(!all_dense)
     } else {
       type_size_ = 4;
     }
-const size_t boundary_size_index = all_dense ? nfeature*nrow : boundary_[nfeature - 1].index_end;
-const size_t boundary_size_row   = all_dense ? nfeature*nrow : boundary_[nfeature - 1].row_ind_end;
 
-    index_.resize(boundary_size_index * type_size_);
+    index_.resize(boundary_[nfeature - 1].index_end * type_size_);
     if (!all_dense) {
-      row_ind_.resize(boundary_size_row);
+      row_ind_.resize(boundary_[nfeature - 1].row_ind_end);
     }
 
     // store least bin id for each feature
@@ -149,24 +143,7 @@ const size_t boundary_size_row   = all_dense ? nfeature*nrow : boundary_[nfeatur
 
     // pre-fill index_ for dense columns
 
-missing_flags_.resize(boundary_size_index);
-if(all_dense)
-{
-    #pragma omp parallel for
-    for (int32_t fid = 0; fid < nfeature; ++fid) {
-      if (type_[fid] == kDenseColumn) {
-        const size_t ibegin = fid*nrow;
-        uint8_t* begin = &missing_flags_[ibegin];
-        uint8_t* end = begin + nrow;
-        std::fill(begin, end, 1);
-/*        uint8_t* begin = &index_[ibegin * type_size_];
-        uint8_t* end = begin + nrow * type_size_;
-        std::fill(begin, end, std::numeric_limits<uint8_t>::max());*/
-        // max() indicates missing values
-      }
-    }
-}
-else{
+missing_flags_.resize(boundary_[nfeature - 1].index_end);
     #pragma omp parallel for
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       if (type_[fid] == kDenseColumn) {
@@ -180,7 +157,6 @@ else{
         // max() indicates missing values
       }
     }
-}
 
     // loop over all rows and fill column entries
     // num_nonzeros[fid] = how many nonzeros have this feature accumulated so far?
@@ -221,22 +197,12 @@ else{
      to determine type of bin id's */
   template <typename T>
   inline Column<T> GetColumn(unsigned fid) const {
-    if(!all_dense) {
-        Column<T> c1(type_[fid],
+    Column<T> c(type_[fid],
                 reinterpret_cast<const T*>(&index_[boundary_[fid].index_begin * type_size_]),
                 index_base_[fid], (type_[fid] == ColumnType::kSparseColumn ?
                 &row_ind_[boundary_[fid].row_ind_begin] : nullptr),
                 boundary_[fid].index_end - boundary_[fid].index_begin, &missing_flags_[boundary_[fid].index_begin]);
-        return c1;
-    }
-    else {
-        Column<T> c2(type_[fid],
-                    reinterpret_cast<const T*>(&index_[fid*nrow * type_size_]),
-                    index_base_[fid], (type_[fid] == ColumnType::kSparseColumn ?
-                    &row_ind_[fid*nrow] : nullptr),
-                    (fid+1)*nrow - fid*nrow, &missing_flags_[fid*nrow]);
-        return c2;
-    }
+    return c;
   }
 
   template<typename T>
@@ -370,8 +336,6 @@ else{
   std::vector<uint32_t> index_base_;
   std::vector<uint8_t> missing_flags_;
   uint32_t type_size_;
-  bool all_dense;
-  size_t nrow;
 };
 
 }  // namespace common
