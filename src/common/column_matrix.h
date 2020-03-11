@@ -77,11 +77,10 @@ class ColumnMatrix {
   // construct column matrix from GHistIndexMatrix
   inline void Init(const GHistIndexMatrix& gmat,
                    double  sparse_threshold) {
-    uint64_t t1 = get_time();
 
     const int32_t nfeature = static_cast<int32_t>(gmat.cut.Ptrs().size() - 1);
     const size_t nrow = gmat.row_ptr.size() - 1;
-
+    uint64_t t100 = get_time();
     // identify type of each column
     feature_counts_.resize(nfeature);
     type_.resize(nfeature);
@@ -144,10 +143,14 @@ class ColumnMatrix {
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       index_base_[fid] = gmat.cut.Ptrs()[fid];
     }
+    uint64_t t200 = get_time();
+std::cout << "\ncolumnmatrix.Init initial time: " << (double)(t200- t100)/(double)1000000000 << "\n";
 
     // pre-fill index_ for dense columns
-
+    uint64_t t10 = get_time();
 missing_flags_.resize(boundary_[nfeature - 1].index_end/*, false*/);
+    uint64_t t20 = get_time();
+std::cout << "\ncolumnmatrix.Init missing_flags_.resize time: " << (double)(t20- t10)/(double)1000000000 << "\n";
 //    #pragma omp parallel for
 //    for (int32_t fid = 0; fid < nfeature; ++fid) {
 //      if (type_[fid] == kDenseColumn) {
@@ -167,7 +170,7 @@ missing_flags_.resize(boundary_[nfeature - 1].index_end/*, false*/);
     //std::vector<size_t> num_nonzeros;
     //num_nonzeros.resize(nfeature);
     //std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
-
+uint64_t t1 = get_time();
     if (all_dense) {
       switch (gmat.index.getBinBound()) {
         case POWER_OF_TWO_8:
@@ -195,8 +198,8 @@ missing_flags_.resize(boundary_[nfeature - 1].index_end/*, false*/);
           break;
       }
     }
-     uint64_t t2 = get_time();
-std::cout << "\ncolumnmatrix.Init time: " << (double)(t2- t1)/(double)1000000000 << "\n";
+uint64_t t2 = get_time();
+std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)1000000000 << "\n";
 
   }
 
