@@ -31,11 +31,11 @@
 #include "../common/threading_utils.h"
 
 
-//uint64_t get_time() {
-//  struct timespec t;
-//  clock_gettime(CLOCK_MONOTONIC, &t);
-//  return t.tv_sec * 1000000000 + t.tv_nsec;
-//} 
+uint64_t get_time() {
+ struct timespec t;
+ clock_gettime(CLOCK_MONOTONIC, &t);
+ return t.tv_sec * 1000000000 + t.tv_nsec;
+} 
 
 
 namespace xgboost {
@@ -63,14 +63,14 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
                                DMatrix *dmat,
                                const std::vector<RegTree *> &trees) {
   if (dmat != p_last_dmat_ || is_gmat_initialized_ == false) {
-//uint64_t t1 = get_time();
+uint64_t t1 = get_time();
     gmat_.Init(dmat, static_cast<uint32_t>(param_.max_bin));
-//uint64_t t2 = get_time();
+uint64_t t2 = get_time();
     column_matrix_.Init(gmat_, param_.sparse_threshold);
-//uint64_t t3 = get_time();
-//std::cout << "\ngmat_.Init time: " << (double)(t2- t1)/(double)1000000000 << "\n";
-//
-//std::cout << "\ncolumn_matrix_.Init time: " << (double)(t3- t2)/(double)1000000000 << "\n";
+uint64_t t3 = get_time();
+std::cout << "\ngmat_.Init time: " << (double)(t2- t1)/(double)1000000000 << "\n";
+
+std::cout << "\ncolumn_matrix_.Init time: " << (double)(t3- t2)/(double)1000000000 << "\n";
 
     if (param_.enable_feature_grouping > 0) {
       gmatb_.Init(gmat_, column_matrix_, param_);

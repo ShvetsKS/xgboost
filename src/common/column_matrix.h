@@ -12,6 +12,7 @@
 #include <vector>
 #include "hist_util.h"
 
+uint64_t get_time();
 
 namespace xgboost {
 namespace common {
@@ -76,6 +77,8 @@ class ColumnMatrix {
   // construct column matrix from GHistIndexMatrix
   inline void Init(const GHistIndexMatrix& gmat,
                    double  sparse_threshold) {
+    uint64_t t1 = get_time();
+
     const int32_t nfeature = static_cast<int32_t>(gmat.cut.Ptrs().size() - 1);
     const size_t nrow = gmat.row_ptr.size() - 1;
 
@@ -144,7 +147,7 @@ class ColumnMatrix {
 
     // pre-fill index_ for dense columns
 
-missing_flags_.resize(boundary_[nfeature - 1].index_end, false);
+missing_flags_.resize(boundary_[nfeature - 1].index_end/*, false*/);
 //    #pragma omp parallel for
 //    for (int32_t fid = 0; fid < nfeature; ++fid) {
 //      if (type_[fid] == kDenseColumn) {
@@ -192,6 +195,9 @@ missing_flags_.resize(boundary_[nfeature - 1].index_end, false);
           break;
       }
     }
+     uint64_t t2 = get_time();
+std::cout << "\ncolumnmatrix.Init time: " << (double)(t2- t1)/(double)1000000000 << "\n";
+
   }
 
   /* Fetch an individual column. This code should be used with XGBOOST_TYPE_SWITCH
