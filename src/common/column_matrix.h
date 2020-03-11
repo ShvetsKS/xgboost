@@ -29,13 +29,13 @@ template <typename T>
 class Column {
  public:
   Column(ColumnType type, const T* index, uint32_t index_base,
-         const size_t* row_ind, size_t len, const uint8_t* missing_flags)
+         const size_t* row_ind, size_t len/*, const uint8_t* missing_flags*/)
       : type_(type),
         index_(index),
         index_base_(index_base),
         row_ind_(row_ind),
-        len_(len),
-        missing_flags_(missing_flags) {}
+        len_(len){}/*,
+        missing_flags_(missing_flags) {}*/
   size_t Size() const { return len_; }
   uint32_t GetGlobalBinIdx(size_t idx) const { return index_base_ + (uint32_t)(index_[idx]); }
   T GetFeatureBinIdx(size_t idx) const { return index_[idx]; }
@@ -50,11 +50,11 @@ class Column {
     return type_ == ColumnType::kDenseColumn ? idx : row_ind_[idx];  // NOLINT
   }
   bool IsMissing(size_t idx) const {
-    return missing_flags_[idx] == 1;//index_[idx] == std::numeric_limits<T>::max();
+    return index_[idx] == std::numeric_limits<T>::max();//missing_flags_[idx] == 1;//index_[idx] == std::numeric_limits<T>::max();
   }
   const size_t* GetRowData() const { return row_ind_; }
 
-  const uint8_t* missing_flags_;
+//  const uint8_t* missing_flags_;
  private:
   ColumnType type_;
   const T* index_;
@@ -119,9 +119,9 @@ class ColumnMatrix {
       boundary_[fid].row_ind_end = accum_row_ind_;
     }
 
-//    type_size_ = 1 << gmat.index.getBinBound();
+    type_size_ = 1 << gmat.index.getBinBound();
 //    std::cout << "\ngmat.max_num_bins_: " << gmat.max_num_bins_ << "\n";
-    if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint8_t>::max()) ) {
+/*    if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint8_t>::max()) ) {
       type_size_ = 1;
 //    std::cout << "\ntype_size_: " << type_size_ << "\n";
     } else if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint16_t>::max())){
@@ -129,7 +129,7 @@ class ColumnMatrix {
     } else {
       type_size_ = 4;
     }
-
+*/
     index_.resize(boundary_[nfeature - 1].index_end * type_size_);
     if (!all_dense) {
       row_ind_.resize(boundary_[nfeature - 1].row_ind_end);
@@ -143,12 +143,12 @@ class ColumnMatrix {
 
     // pre-fill index_ for dense columns
 
-missing_flags_.resize(boundary_[nfeature - 1].index_end);
+//missing_flags_.resize(boundary_[nfeature - 1].index_end);
     #pragma omp parallel for
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       if (type_[fid] == kDenseColumn) {
         const size_t ibegin = boundary_[fid].index_begin;
-        uint8_t* begin = &missing_flags_[ibegin];
+        uint8_t* begin = &index_[ibegin];
         uint8_t* end = begin + nrow;
         std::fill(begin, end, 1);
         // max() indicates missing values
@@ -198,7 +198,7 @@ missing_flags_.resize(boundary_[nfeature - 1].index_end);
                 reinterpret_cast<const T*>(&index_[boundary_[fid].index_begin * type_size_]),
                 index_base_[fid], (type_[fid] == ColumnType::kSparseColumn ?
                 &row_ind_[boundary_[fid].row_ind_begin] : nullptr),
-                boundary_[fid].index_end - boundary_[fid].index_begin, &missing_flags_[boundary_[fid].index_begin]);
+                boundary_[fid].index_end - boundary_[fid].index_begin/*, &missing_flags_[boundary_[fid].index_begin]*/);
     return c;
   }
 
@@ -214,7 +214,7 @@ missing_flags_.resize(boundary_[nfeature - 1].index_end);
           const size_t idx = boundary_[jp].index_begin;
           T* begin = &local_index[idx];
           begin[rid] = index[i];
-          missing_flags_[idx + rid] = 0;
+//          missing_flags_[idx + rid] = 0;
       }
     }
   }
@@ -273,11 +273,11 @@ missing_flags_.resize(boundary_[nfeature - 1].index_end);
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[rid] = bin_id - index_base_[fid];
           //  std::cout <<  (uint32_t)begin[rid] << "   ";
-            missing_flags_[boundary_[fid].index_begin + rid] = 0;
+            //missing_flags_[boundary_[fid].index_begin + rid] = 0;
           } else {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
-            missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = 0;
+            //missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = 0;
           //  std::cout <<  (uint32_t)begin[num_nonzeros[fid]]  << "   ";
             row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
             ++num_nonzeros[fid];
@@ -330,7 +330,7 @@ missing_flags_.resize(boundary_[nfeature - 1].index_end);
 
   // index_base_[fid]: least bin id for feature fid
   std::vector<uint32_t> index_base_;
-  std::vector<uint8_t> missing_flags_;
+  //std::vector<uint8_t> missing_flags_;
   uint32_t type_size_;
 };
 
