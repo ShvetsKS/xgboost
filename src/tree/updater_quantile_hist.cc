@@ -793,7 +793,7 @@ template <bool default_left, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionDenseKernel(
       common::Span<const size_t> rid_span, common::Span<const BinIdxType> idx_span,
       const int32_t split_cond, const int32_t offset,
-      common::Span<size_t> left_part, common::Span<size_t> right_part, const uint8_t* missing_val_flag) {
+      common::Span<size_t> left_part, common::Span<size_t> right_part, const std::vector<bool>* missing_val_flag, const size_t disp) {
   const BinIdxType* idx = idx_span.data();
   size_t* p_left_part = left_part.data();
   size_t* p_right_part = right_part.data();
@@ -803,7 +803,7 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(
   //const BinIdxType missing_val = std::numeric_limits<BinIdxType>::max();
 
   for (auto rid : rid_span) {
-    if (/*idx[rid] == missing_val */ missing_val_flag[rid] == 1) {
+    if (/*idx[rid] == missing_val */ (*missing_val_flag)[disp + rid] == false) {
 //      std::cout << "\nmissing_val missing_val missing_val missing_val missing_val\n";
       if (default_left) {
         p_left_part[nleft_elems++] = rid;
@@ -828,7 +828,7 @@ template<bool default_left, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionSparseKernel(
   common::Span<const size_t> rid_span, const int32_t split_cond,
   const Column<BinIdxType>& column, common::Span<size_t> left_part,
-  common::Span<size_t> right_part, const uint8_t* missing_val_flag) {
+  common::Span<size_t> right_part, const std::vector<bool>* missing_val_flag) {
   size_t* p_left_part  = left_part.data();
   size_t* p_right_part = right_part.data();
 
@@ -896,19 +896,19 @@ void QuantileHistMaker::Builder::PartitionKernel(
   const auto column = column_matrix.GetColumn<BinIdxType>(fid);
 
   const int32_t offset = column.GetBaseIdx();
-  const uint8_t* missing_val_flag = column.missing_flags_;
+  const std::vector<bool>* missing_val_flag = column.missing_flags_;
   common::Span<const BinIdxType> idx_span = column.GetFeatureBinIdxPtr();
-
+  const size_t disp = column.disp_;
   std::pair<size_t, size_t> child_nodes_sizes;
 
   if (column.GetType() == xgboost::common::kDenseColumn) {
  //   std::cout << "\n!!!!!!!DENSE PartitionDenseKernel !!!!!!!!!\n";
     if (default_left) {
       child_nodes_sizes = PartitionDenseKernel<true>(
-                            rid_span, idx_span, split_cond, offset, left, right, missing_val_flag);
+                            rid_span, idx_span, split_cond, offset, left, right, missing_val_flag, disp);
     } else {
       child_nodes_sizes = PartitionDenseKernel<false>(
-                            rid_span, idx_span, split_cond, offset, left, right, missing_val_flag);
+                            rid_span, idx_span, split_cond, offset, left, right, missing_val_flag, disp);
     }
   } else {
  //   std::cout << "\n+++++++++SPARSE PartitionSparseKernel !!!!!!!!!\n";
