@@ -793,7 +793,7 @@ template <bool default_left, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionDenseKernel(
       common::Span<const size_t> rid_span, common::Span<const BinIdxType> idx_span,
       const int32_t split_cond, const int32_t offset,
-      common::Span<size_t> left_part, common::Span<size_t> right_part, const std::vector<bool>* missing_val_flag, const size_t disp) {
+      common::Span<size_t> left_part, common::Span<size_t> right_part, const std::vector<uint8_t>* missing_val_flag, const size_t disp) {
   const BinIdxType* idx = idx_span.data();
   size_t* p_left_part = left_part.data();
   size_t* p_right_part = right_part.data();
@@ -803,7 +803,7 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(
   //const BinIdxType missing_val = std::numeric_limits<BinIdxType>::max();
 
   for (auto rid : rid_span) {
-    if (/*idx[rid] == missing_val */ (*missing_val_flag)[disp + rid] == false) {
+    if (/*idx[rid] == missing_val */ (*missing_val_flag)[disp + rid] == 0) {
 //      std::cout << "\nmissing_val missing_val missing_val missing_val missing_val\n";
       if (default_left) {
         p_left_part[nleft_elems++] = rid;
@@ -828,7 +828,7 @@ template<bool default_left, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionSparseKernel(
   common::Span<const size_t> rid_span, const int32_t split_cond,
   const Column<BinIdxType>& column, common::Span<size_t> left_part,
-  common::Span<size_t> right_part, const std::vector<bool>* missing_val_flag) {
+  common::Span<size_t> right_part, const std::vector<uint8_t>* missing_val_flag) {
   size_t* p_left_part  = left_part.data();
   size_t* p_right_part = right_part.data();
 
@@ -896,7 +896,7 @@ void QuantileHistMaker::Builder::PartitionKernel(
   const auto column = column_matrix.GetColumn<BinIdxType>(fid);
 
   const int32_t offset = column.GetBaseIdx();
-  const std::vector<bool>* missing_val_flag = column.missing_flags_;
+  const std::vector<uint8_t>* missing_val_flag = column.missing_flags_;
   common::Span<const BinIdxType> idx_span = column.GetFeatureBinIdxPtr();
   const size_t disp = column.disp_;
   std::pair<size_t, size_t> child_nodes_sizes;

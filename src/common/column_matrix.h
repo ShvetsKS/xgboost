@@ -30,7 +30,7 @@ template <typename T>
 class Column {
  public:
   Column(ColumnType type, const T* index, uint32_t index_base,
-         const size_t* row_ind, size_t len, const std::vector<bool>* missing_flags, const size_t disp)
+         const size_t* row_ind, size_t len, const std::vector<uint8_t>* missing_flags, const size_t disp)
       : type_(type),
         index_(index),
         index_base_(index_base),
@@ -55,7 +55,7 @@ class Column {
   }
   const size_t* GetRowData() const { return row_ind_; }
 
-  const std::vector<bool>* missing_flags_;
+  const std::vector<uint8_t>* missing_flags_;
   const size_t disp_;
  private:
   ColumnType type_;
@@ -148,7 +148,7 @@ std::cout << "\ncolumnmatrix.Init initial time: " << (double)(t200- t100)/(doubl
 
     // pre-fill index_ for dense columns
     uint64_t t10 = get_time();
-missing_flags_.resize(boundary_[nfeature - 1].index_end, true);
+missing_flags_.resize(boundary_[nfeature - 1].index_end, 1);
     uint64_t t20 = get_time();
 std::cout << "\ncolumnmatrix.Init missing_flags_.resize time: " << (double)(t20- t10)/(double)1000000000 << "\n";
 //    #pragma omp parallel for
@@ -218,6 +218,18 @@ std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)100
   template<typename T>
   inline void SetIndexAllDense(T* index, const GHistIndexMatrix& gmat,  const size_t nrow, const size_t nfeature) {
     T* local_index = reinterpret_cast<T*>(&index_[0]);
+const int32_t nthread = omp_get_max_threads();
+
+/*    #pragma omp parallel for num_threads(nthread) schedule(static)
+    for (bst_omp_uint idx = 0; idx < bst_omp_uint(nbins); ++idx) {
+      for (int32_t tid = 0; tid < nthread; ++tid) {
+        hit_count[idx] += hit_count_tloc_[tid * nbins + idx];
+        hit_count_tloc_[tid * nbins + idx] = 0;  // reset for next batch
+      }
+    }*/
+
+
+    #pragma omp parallel for num_threads(nthread)
     for (size_t rid = 0; rid < nrow; ++rid) {
       const size_t ibegin = /*rid*nfeature;*/gmat.row_ptr[rid];
       const size_t iend = /*(rid+1)*nfeature;*/gmat.row_ptr[rid + 1];
@@ -225,10 +237,10 @@ std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)100
       size_t jp = 0;
       for (size_t i = ibegin; i < iend; ++i, ++jp) {
           const size_t idx = /*jp*nrow;*/ boundary_[jp].index_begin;
-          T* begin = &local_index[idx];
-          begin[rid] = index[i];
-          //local_index[idx + rid] = index[i]; 
-          //missing_flags_[idx + rid] = true;
+          /*T* begin = &local_index[idx];
+          begin[rid] = index[i];*/
+          local_index[idx + rid] = index[i]; 
+          //missing_flags_[idx + rid] = 1;
       }
     }
 
@@ -288,11 +300,11 @@ std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)100
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[rid] = bin_id - index_base_[fid];
           //  std::cout <<  (uint32_t)begin[rid] << "   ";
-            missing_flags_[boundary_[fid].index_begin + rid] = true;
+            missing_flags_[boundary_[fid].index_begin + rid] = 1;
           } else {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
-            missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = true;
+            missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = 1;
           //  std::cout <<  (uint32_t)begin[num_nonzeros[fid]]  << "   ";
             row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
             ++num_nonzeros[fid];
@@ -345,7 +357,7 @@ std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)100
 
   // index_base_[fid]: least bin id for feature fid
   std::vector<uint32_t> index_base_;
-  std::vector<bool> missing_flags_;
+  std::vector<uint8_t> missing_flags_;
   uint32_t type_size_;
 };
 
