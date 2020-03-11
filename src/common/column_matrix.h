@@ -117,7 +117,7 @@ class ColumnMatrix {
       boundary_[fid].row_ind_end = accum_row_ind_;
     }
 
-    index_.resize(boundary_[nfeature - 1].index_end);
+    // /index_.resize(boundary_[nfeature - 1].index_end);
     type_size_ = 1 << gmat.index.getBinBound();
     index_.resize(boundary_[nfeature - 1].index_end * type_size_);
     if (!all_dense) {
@@ -145,9 +145,9 @@ class ColumnMatrix {
 
     // loop over all rows and fill column entries
     // num_nonzeros[fid] = how many nonzeros have this feature accumulated so far?
-    std::vector<size_t> num_nonzeros;
-    num_nonzeros.resize(nfeature);
-    std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
+    //std::vector<size_t> num_nonzeros;
+    //num_nonzeros.resize(nfeature);
+    //std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
 
     if (all_dense) {
       switch (gmat.index.getBinBound()) {
