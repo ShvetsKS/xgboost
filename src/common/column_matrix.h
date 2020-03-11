@@ -148,7 +148,7 @@ std::cout << "\ncolumnmatrix.Init initial time: " << (double)(t200- t100)/(doubl
 
     // pre-fill index_ for dense columns
     uint64_t t10 = get_time();
-missing_flags_.resize(boundary_[nfeature - 1].index_end, 1);
+missing_flags_.resize(boundary_[nfeature - 1].index_end, 0);
     uint64_t t20 = get_time();
 std::cout << "\ncolumnmatrix.Init missing_flags_.resize time: " << (double)(t20- t10)/(double)1000000000 << "\n";
 //    #pragma omp parallel for
@@ -240,7 +240,7 @@ const int32_t nthread = omp_get_max_threads();
           /*T* begin = &local_index[idx];
           begin[rid] = index[i];*/
           local_index[idx + rid] = index[i]; 
-          //missing_flags_[idx + rid] = 1;
+          missing_flags_[idx + rid] = 1;
       }
     }
 
@@ -280,7 +280,8 @@ const int32_t nthread = omp_get_max_threads();
 //    }
 
 //    std::cout << "\n++bin_id: \n";
-    #pragma omp parallel for num_threads(nthread)
+const int32_t nthread = omp_get_max_threads();
+ //   #pragma omp parallel for num_threads(nthread)
     for (size_t rid = 0; rid < nrow; ++rid) {
         const size_t ibegin = gmat.row_ptr[rid];
         const size_t iend = gmat.row_ptr[rid + 1];
