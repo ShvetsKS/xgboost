@@ -281,7 +281,7 @@ const int32_t nthread = omp_get_max_threads();
 
 //    std::cout << "\n++bin_id: \n";
 const int32_t nthread = omp_get_max_threads();
-    #pragma omp parallel for num_threads(nthread)
+    //#pragma omp parallel for num_threads(nthread)
     for (size_t rid = 0; rid < nrow; ++rid) {
         const size_t ibegin = gmat.row_ptr[rid];
         const size_t iend = gmat.row_ptr[rid + 1];
@@ -301,11 +301,11 @@ const int32_t nthread = omp_get_max_threads();
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[rid] = bin_id - index_base_[fid];
           //  std::cout <<  (uint32_t)begin[rid] << "   ";
-            missing_flags_[boundary_[fid].index_begin + rid] = 1;
+            missing_flags_[boundary_[fid].index_begin + rid] = 0;
           } else {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
-            missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = 1;
+            missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = 0;
           //  std::cout <<  (uint32_t)begin[num_nonzeros[fid]]  << "   ";
             row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
             ++num_nonzeros[fid];
