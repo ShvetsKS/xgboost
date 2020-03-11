@@ -31,11 +31,11 @@
 #include "../common/threading_utils.h"
 
 
-uint64_t get_time() {
-  struct timespec t;
-  clock_gettime(CLOCK_MONOTONIC, &t);
-  return t.tv_sec * 1000000000 + t.tv_nsec;
-} 
+//uint64_t get_time() {
+//  struct timespec t;
+//  clock_gettime(CLOCK_MONOTONIC, &t);
+//  return t.tv_sec * 1000000000 + t.tv_nsec;
+//} 
 
 
 namespace xgboost {
@@ -63,14 +63,14 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
                                DMatrix *dmat,
                                const std::vector<RegTree *> &trees) {
   if (dmat != p_last_dmat_ || is_gmat_initialized_ == false) {
-uint64_t t1 = get_time();
+//uint64_t t1 = get_time();
     gmat_.Init(dmat, static_cast<uint32_t>(param_.max_bin));
-uint64_t t2 = get_time();
+//uint64_t t2 = get_time();
     column_matrix_.Init(gmat_, param_.sparse_threshold);
-uint64_t t3 = get_time();
-std::cout << "\ngmat_.Init time: " << (double)(t2- t1)/(double)1000000000 << "\n";
-
-std::cout << "\ncolumn_matrix_.Init time: " << (double)(t3- t2)/(double)1000000000 << "\n";
+//uint64_t t3 = get_time();
+//std::cout << "\ngmat_.Init time: " << (double)(t2- t1)/(double)1000000000 << "\n";
+//
+//std::cout << "\ncolumn_matrix_.Init time: " << (double)(t3- t2)/(double)1000000000 << "\n";
 
     if (param_.enable_feature_grouping > 0) {
       gmatb_.Init(gmat_, column_matrix_, param_);
@@ -793,17 +793,17 @@ template <bool default_left, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionDenseKernel(
       common::Span<const size_t> rid_span, common::Span<const BinIdxType> idx_span,
       const int32_t split_cond, const int32_t offset,
-      common::Span<size_t> left_part, common::Span<size_t> right_part/*, const uint8_t* missing_val_flag*/) {
+      common::Span<size_t> left_part, common::Span<size_t> right_part, const uint8_t* missing_val_flag) {
   const BinIdxType* idx = idx_span.data();
   size_t* p_left_part = left_part.data();
   size_t* p_right_part = right_part.data();
   size_t nleft_elems = 0;
   size_t nright_elems = 0;
 
-  const BinIdxType missing_val = std::numeric_limits<BinIdxType>::max();
+  //const BinIdxType missing_val = std::numeric_limits<BinIdxType>::max();
 
   for (auto rid : rid_span) {
-    if (idx[rid] == missing_val/* missing_val_flag[rid] == 1*/) {
+    if (/*idx[rid] == missing_val */ missing_val_flag[rid] == 1) {
 //      std::cout << "\nmissing_val missing_val missing_val missing_val missing_val\n";
       if (default_left) {
         p_left_part[nleft_elems++] = rid;
@@ -828,7 +828,7 @@ template<bool default_left, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionSparseKernel(
   common::Span<const size_t> rid_span, const int32_t split_cond,
   const Column<BinIdxType>& column, common::Span<size_t> left_part,
-  common::Span<size_t> right_part/*, const uint8_t* missing_val_flag*/) {
+  common::Span<size_t> right_part, const uint8_t* missing_val_flag) {
   size_t* p_left_part  = left_part.data();
   size_t* p_right_part = right_part.data();
 
@@ -896,7 +896,7 @@ void QuantileHistMaker::Builder::PartitionKernel(
   const auto column = column_matrix.GetColumn<BinIdxType>(fid);
 
   const int32_t offset = column.GetBaseIdx();
-/*  const uint8_t* missing_val_flag = column.missing_flags_;*/
+  const uint8_t* missing_val_flag = column.missing_flags_;
   common::Span<const BinIdxType> idx_span = column.GetFeatureBinIdxPtr();
 
   std::pair<size_t, size_t> child_nodes_sizes;
@@ -905,17 +905,17 @@ void QuantileHistMaker::Builder::PartitionKernel(
  //   std::cout << "\n!!!!!!!DENSE PartitionDenseKernel !!!!!!!!!\n";
     if (default_left) {
       child_nodes_sizes = PartitionDenseKernel<true>(
-                            rid_span, idx_span, split_cond, offset, left, right/*, missing_val_flag*/);
+                            rid_span, idx_span, split_cond, offset, left, right, missing_val_flag);
     } else {
       child_nodes_sizes = PartitionDenseKernel<false>(
-                            rid_span, idx_span, split_cond, offset, left, right/*, missing_val_flag*/);
+                            rid_span, idx_span, split_cond, offset, left, right, missing_val_flag);
     }
   } else {
  //   std::cout << "\n+++++++++SPARSE PartitionSparseKernel !!!!!!!!!\n";
     if (default_left) {
-      child_nodes_sizes = PartitionSparseKernel<true>(rid_span, split_cond, column, left, right/*, missing_val_flag*/);
+      child_nodes_sizes = PartitionSparseKernel<true>(rid_span, split_cond, column, left, right, missing_val_flag);
     } else {
-      child_nodes_sizes = PartitionSparseKernel<false>(rid_span, split_cond, column, left, right/*, missing_val_flag*/);
+      child_nodes_sizes = PartitionSparseKernel<false>(rid_span, split_cond, column, left, right, missing_val_flag);
     }
   }
 
