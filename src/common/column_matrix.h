@@ -148,9 +148,12 @@ class ColumnMatrix {
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       if (type_[fid] == kDenseColumn) {
         const size_t ibegin = boundary_[fid].index_begin;
-        uint8_t* begin = &index_[ibegin];
+/*        uint8_t* begin = &index_[ibegin];
         uint8_t* end = begin + nrow;
-        std::fill(begin, end, 1);
+        std::fill(begin, end, 1);*/
+        uint8_t* begin = &index_[ibegin * type_size_];
+        uint8_t* end = begin + nrow * type_size_;
+        std::fill(begin, end, std::numeric_limits<uint8_t>::max());
         // max() indicates missing values
       }
     }
