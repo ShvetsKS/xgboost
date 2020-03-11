@@ -281,7 +281,7 @@ const int32_t nthread = omp_get_max_threads();
 
 //    std::cout << "\n++bin_id: \n";
 const int32_t nthread = omp_get_max_threads();
- //   #pragma omp parallel for num_threads(nthread)
+    #pragma omp parallel for num_threads(nthread)
     for (size_t rid = 0; rid < nrow; ++rid) {
         const size_t ibegin = gmat.row_ptr[rid];
         const size_t iend = gmat.row_ptr[rid + 1];
