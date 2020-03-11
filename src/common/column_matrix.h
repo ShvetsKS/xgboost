@@ -148,7 +148,7 @@ std::cout << "\ncolumnmatrix.Init initial time: " << (double)(t200- t100)/(doubl
 
     // pre-fill index_ for dense columns
     uint64_t t10 = get_time();
-missing_flags_.resize(boundary_[nfeature - 1].index_end/*, false*/);
+missing_flags_.resize(boundary_[nfeature - 1].index_end, true);
     uint64_t t20 = get_time();
 std::cout << "\ncolumnmatrix.Init missing_flags_.resize time: " << (double)(t20- t10)/(double)1000000000 << "\n";
 //    #pragma omp parallel for
@@ -228,7 +228,7 @@ std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)100
           T* begin = &local_index[idx];
           begin[rid] = index[i];
           //local_index[idx + rid] = index[i]; 
-          missing_flags_[idx + rid] = true;
+          //missing_flags_[idx + rid] = true;
       }
     }
 
