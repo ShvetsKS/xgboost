@@ -779,7 +779,8 @@ template <bool default_left, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionDenseKernel(
       common::Span<const size_t> rid_span, common::Span<const BinIdxType> idx_span,
       const int32_t split_cond, const int32_t offset,
-      common::Span<size_t> left_part, common::Span<size_t> right_part, const std::vector<bool>* missing_val_flag, const size_t disp) {
+      common::Span<size_t> left_part, common::Span<size_t> right_part,
+      const std::vector<bool>* missing_val_flag, const size_t disp) {
   const BinIdxType* idx = idx_span.data();
   size_t* p_left_part = left_part.data();
   size_t* p_right_part = right_part.data();
@@ -811,7 +812,7 @@ template<bool default_left, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionSparseKernel(
   common::Span<const size_t> rid_span, const int32_t split_cond,
   const Column<BinIdxType>& column, common::Span<size_t> left_part,
-  common::Span<size_t> right_part, const std::vector<bool>* missing_val_flag) {
+  common::Span<size_t> right_part) {
   size_t* p_left_part  = left_part.data();
   size_t* p_right_part = right_part.data();
 
@@ -887,16 +888,18 @@ void QuantileHistMaker::Builder::PartitionKernel(
   if (column.GetType() == xgboost::common::kDenseColumn) {
     if (default_left) {
       child_nodes_sizes = PartitionDenseKernel<true>(
-                            rid_span, idx_span, split_cond, offset, left, right, missing_val_flag, disp);
+                            rid_span, idx_span, split_cond, offset, left,
+                            right, missing_val_flag, disp);
     } else {
       child_nodes_sizes = PartitionDenseKernel<false>(
-                            rid_span, idx_span, split_cond, offset, left, right, missing_val_flag, disp);
+                            rid_span, idx_span, split_cond, offset, left,
+                            right, missing_val_flag, disp);
     }
   } else {
     if (default_left) {
-      child_nodes_sizes = PartitionSparseKernel<true>(rid_span, split_cond, column, left, right, missing_val_flag);
+      child_nodes_sizes = PartitionSparseKernel<true>(rid_span, split_cond, column, left, right);
     } else {
-      child_nodes_sizes = PartitionSparseKernel<false>(rid_span, split_cond, column, left, right, missing_val_flag);
+      child_nodes_sizes = PartitionSparseKernel<false>(rid_span, split_cond, column, left, right);
     }
   }
 

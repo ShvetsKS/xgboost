@@ -976,7 +976,6 @@ void GHistBuilder::BuildHist(const std::vector<GradientPair>& gpair,
   if (contiguousBlock) {
     BuildHistKernel<FPType, false>(gpair, row_indices, gmat, isDense, hist);
   } else {
-
     const RowSetCollection::Elem span1(row_indices.begin, row_indices.end - no_prefetch_size);
     const RowSetCollection::Elem span2(row_indices.end - no_prefetch_size, row_indices.end);
 

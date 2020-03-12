@@ -30,7 +30,8 @@ template <typename T>
 class Column {
  public:
   Column(ColumnType type, const T* index, uint32_t index_base,
-         const size_t* row_ind, size_t len, const std::vector<bool>* missing_flags, const size_t disp)
+         const size_t* row_ind, size_t len,
+         const std::vector<bool>* missing_flags, const size_t disp)
       : type_(type),
         index_(index),
         index_base_(index_base),
@@ -48,15 +49,16 @@ class Column {
   size_t GetRowIdx(size_t idx) const {
     // clang-tidy worries that row_ind_ might be a nullptr, which is possible,
     // but low level structure is not safe anyway.
-    return type_ == ColumnType::kDenseColumn ? idx : row_ind_[idx];  // NOLINT
+    return type_ == ColumnType::kDenseColumn ? idx : row_ind_[idx];// NOLINT
   }
   inline bool IsMissing(size_t idx) const {
-    return (*missing_flags_)[disp_ + idx] == true;//index_[idx] == std::numeric_limits<T>::max();
+    return (*missing_flags_)[disp_ + idx] == true;
   }
   const size_t* GetRowData() const { return row_ind_; }
 
   const std::vector<bool>* missing_flags_;
   const size_t disp_;
+
  private:
   ColumnType type_;
   const T* index_;
@@ -77,7 +79,6 @@ class ColumnMatrix {
   // construct column matrix from GHistIndexMatrix
   inline void Init(const GHistIndexMatrix& gmat,
                    double  sparse_threshold) {
-
     const int32_t nfeature = static_cast<int32_t>(gmat.cut.Ptrs().size() - 1);
     const size_t nrow = gmat.row_ptr.size() - 1;
     // identify type of each column
@@ -120,7 +121,7 @@ class ColumnMatrix {
 
     if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint8_t>::max()) ) {
       type_size_ = 1;
-    } else if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint16_t>::max())){
+    } else if ((gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint16_t>::max())) {
       type_size_ = 2;
     } else {
       type_size_ = 4;
@@ -137,10 +138,11 @@ class ColumnMatrix {
     // pre-fill index_ for dense columns
     const bool noMissingValues = gmat.row_ptr[nrow] == nrow * nfeature;
 
-    if(noMissingValues)
+    if (noMissingValues) {
       missing_flags_.resize(boundary_[nfeature - 1].index_end, false);
-    else
+    } else {
       missing_flags_.resize(boundary_[nfeature - 1].index_end, true);
+    }
 
     if (all_dense) {
       switch (gmat.index.getBinBound()) {
@@ -177,7 +179,8 @@ class ColumnMatrix {
                 reinterpret_cast<const T*>(&index_[boundary_[fid].index_begin * type_size_]),
                 index_base_[fid], (type_[fid] == ColumnType::kSparseColumn ?
                 &row_ind_[boundary_[fid].index_begin] : nullptr),
-                boundary_[fid].index_end - boundary_[fid].index_begin, &missing_flags_, boundary_[fid].index_begin);
+                boundary_[fid].index_end - boundary_[fid].index_begin,
+                &missing_flags_, boundary_[fid].index_begin);
     return c;
   }
 
@@ -197,7 +200,6 @@ class ColumnMatrix {
             const size_t idx = boundary_[j].index_begin;
             local_index[idx + rid] = index[i];
         }
-
       }
     } else {
       size_t rbegin = 0;
@@ -224,8 +226,6 @@ class ColumnMatrix {
   template<typename T>
   inline void SetIndex(uint32_t* index, const GHistIndexMatrix& gmat,
                        const size_t nrow, const size_t nfeature) {
-    const SparsePage& batch = *(gmat.p_fmat_->GetBatches<SparsePage>().begin());
-
     std::vector<size_t> num_nonzeros;
     num_nonzeros.resize(nfeature);
     std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);

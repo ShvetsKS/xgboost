@@ -198,7 +198,7 @@ enum BinBounds {
 };
 
 struct Index {
-  Index(): binBound_(POWER_OF_TWO_8), p_(1) {
+  Index(): binBound_(POWER_OF_TWO_8), p_(1), disp_ptr_(nullptr) {
     setBinBound(binBound_);
   }
   Index(const Index& i) = delete;
@@ -206,7 +206,11 @@ struct Index {
   Index(Index&& i) = delete;
   Index& operator=(Index&& i) = delete;
   uint32_t operator[](size_t i) const {
-    return func_(data_ptr_, i) + disp_ptr_[i%p_];
+    if (disp_ptr_ != nullptr) {
+      return func_(data_ptr_, i) + disp_ptr_[i%p_];
+    } else {
+      return func_(data_ptr_, i);
+    }
   }
   void setBinBound(BinBounds binBound) {
     binBound_ = binBound;
