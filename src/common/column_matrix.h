@@ -79,33 +79,17 @@ class ColumnMatrix {
                    double  sparse_threshold) {
 
     const int32_t nfeature = static_cast<int32_t>(gmat.cut.Ptrs().size() - 1);
-std::cout << "\nnfeature: " << nfeature << "\n";
     const size_t nrow = gmat.row_ptr.size() - 1;
-std::cout << "\nnrow: " << nrow << "\n";
-    uint64_t t100 = get_time();
     // identify type of each column
     feature_counts_.resize(nfeature);
     type_.resize(nfeature);
     std::fill(feature_counts_.begin(), feature_counts_.end(), 0);
-/*std::cout << "\nfeature_counts_:\n";
-for(size_t i = 0; i < nfeature; ++i)
-{
-  std::cout << feature_counts_[i] << "   ";
-}*/
-std::cout << "\ngmat.row_ptr:\n";
-
-for(size_t i = 0; i < 101; ++i)
-{
-  std::cout << gmat.row_ptr[i] << "   ";
-}
-std::cout << "\ngmat.row_ptr[nrow]: " << gmat.row_ptr[nrow];
 
     uint32_t max_val = std::numeric_limits<uint32_t>::max();
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       CHECK_LE(gmat.cut.Ptrs()[fid + 1] - gmat.cut.Ptrs()[fid], max_val);
     }
     bool all_dense = gmat.IsDense();
-std::cout << "\nall_dense: " << all_dense << "\n";
     gmat.GetFeatureCounts(&feature_counts_[0]);
     // classify features
     for (int32_t fid = 0; fid < nfeature; ++fid) {
@@ -125,39 +109,17 @@ std::cout << "\nall_dense: " << all_dense << "\n";
     size_t accum_row_ind_ = 0;
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       boundary_[fid].index_begin = accum_index_;
-//      boundary_[fid].row_ind_begin = accum_row_ind_;
       if (type_[fid] == kDenseColumn) {
-        std::cout << "\n!!!!!!!!!!!!!!!DENSE IN SPARSE!!!!!!!!!!\n";
         accum_index_ += static_cast<size_t>(nrow);
- //       accum_row_ind_ += static_cast<size_t>(nrow);
       } else {
         accum_index_ += feature_counts_[fid];
         accum_row_ind_ += feature_counts_[fid];
       }
       boundary_[fid].index_end = accum_index_;
-//      boundary_[fid].row_ind_end = accum_row_ind_;
     }
 
-std::cout << "\nfeature_counts_:\n";
-for(size_t i = 0; i < nfeature; ++i)
-{
-  std::cout << feature_counts_[i] << "   ";
-}
-
-std::cout << "\n!!!!!!!!boundary_[nrow]: \n";
-for(size_t i = 0; i < nfeature; ++i)
-{
- std::cout << "index_begin: " << boundary_[i].index_begin << "   index_end: ";
- std::cout << boundary_[i].index_end << "   ";
-}
-std::cout << "\n";
-
-
-//    type_size_ = 1 << gmat.index.getBinBound();
-//    std::cout << "\ngmat.max_num_bins_: " << gmat.max_num_bins_ << "\n";
     if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint8_t>::max()) ) {
       type_size_ = 1;
-//    std::cout << "\ntype_size_: " << type_size_ << "\n";
     } else if ( (gmat.max_num_bins_ - 1) <= static_cast<int>(std::numeric_limits<uint16_t>::max())){
       type_size_ = 2;
     } else {
@@ -171,50 +133,15 @@ std::cout << "\n";
 
     // store least bin id for each feature
     index_base_ = const_cast<uint32_t*>(gmat.cut.Ptrs().data());
-    /*index_base_.resize(nfeature);
-    for (int32_t fid = 0; fid < nfeature; ++fid) {
-      index_base_[fid] = gmat.cut.Ptrs()[fid];
-    }*/
-    uint64_t t200 = get_time();
-std::cout << "\ncolumnmatrix.Init initial time: " << (double)(t200- t100)/(double)1000000000 << "\n";
 
     // pre-fill index_ for dense columns
-    uint64_t t10 = get_time();
     const bool noMissingValues = gmat.row_ptr[nrow] == nrow * nfeature;
-//std::cout << "!!!!!!!!!!!!nrow * nfeature: " << nrow * nfeature << "\n";
-//std::cout << "!!!!!!!!!!!!gmat.row_ptr[nrow - 1]: " << gmat.row_ptr[nrow - 1] << "\n";
-std::cout << "!!!!!!!!!!!!noMissingValues: " << noMissingValues << "\n";
-std::cout << "!!!!!!!!!!!!boundary_[nfeature - 1].index_end == gmat.row_ptr[nrow]: " << (bool)(boundary_[nfeature - 1].index_end == gmat.row_ptr[nrow]) << "\n";
 
-  if(noMissingValues)
-    missing_flags_.resize(boundary_[nfeature - 1].index_end, false);
-  else
-    missing_flags_.resize(boundary_[nfeature - 1].index_end, true);
+    if(noMissingValues)
+      missing_flags_.resize(boundary_[nfeature - 1].index_end, false);
+    else
+      missing_flags_.resize(boundary_[nfeature - 1].index_end, true);
 
-
-    uint64_t t20 = get_time();
-std::cout << "\ncolumnmatrix.Init missing_flags_.resize time: " << (double)(t20- t10)/(double)1000000000 << "\n";
-//    #pragma omp parallel for
-//    for (int32_t fid = 0; fid < nfeature; ++fid) {
-//      if (type_[fid] == kDenseColumn) {
-//        const size_t ibegin = boundary_[fid].index_begin;
-//        uint8_t* begin = &missing_flags_[ibegin];
-//        uint8_t* end = begin + nrow;
-//        std::fill(begin, end, 1);
-///*        uint8_t* begin = &index_[ibegin * type_size_];
-//        uint8_t* end = begin + nrow * type_size_;
-//        std::fill(begin, end, std::numeric_limits<uint8_t>::max());*/
-//        // max() indicates missing values
-//      }
-//    }
-
-    // loop over all rows and fill column entries
-    // num_nonzeros[fid] = how many nonzeros have this feature accumulated so far?
-    //std::vector<size_t> num_nonzeros;
-    //num_nonzeros.resize(nfeature);
-    //std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
-
-uint64_t t1 = get_time();
     if (all_dense) {
       switch (gmat.index.getBinBound()) {
         case POWER_OF_TWO_8:
@@ -230,9 +157,7 @@ uint64_t t1 = get_time();
     } else {
       switch (type_size_) {
         case 1:
-   //       std::cout << "\nSetIndex\n";
           SetIndex<uint8_t>(gmat.index.data<uint32_t>(), gmat, nrow, nfeature);
-   //       std::cout << "\nSetIndex end\n";
           break;
         case 2:
           SetIndex<uint16_t>(gmat.index.data<uint32_t>(), gmat, nrow, nfeature);
@@ -242,17 +167,6 @@ uint64_t t1 = get_time();
           break;
       }
     }
-uint64_t t2 = get_time();
-std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)1000000000 << "\n";
-
-uint8_t* idx = &index_[0];
-std::cout << "\nidx[i]: \n";
-for(size_t i = 0; i < 100; ++i)
-{
-  std::cout << (uint32_t)idx[i] << "   ";
-}
-std::cout << "\n";
-
   }
 
   /* Fetch an individual column. This code should be used with XGBOOST_TYPE_SWITCH
@@ -272,7 +186,7 @@ std::cout << "\n";
                                const size_t nfeature,  const bool noMissingValues) {
     T* local_index = reinterpret_cast<T*>(&index_[0]);
 
-    if(noMissingValues) {
+    if (noMissingValues) {
       const int32_t nthread = omp_get_max_threads();
       #pragma omp parallel for num_threads(nthread)
       for (size_t rid = 0; rid < nrow; ++rid) {
@@ -286,37 +200,26 @@ std::cout << "\n";
 
       }
     } else {
-      const SparsePage& batch = *(gmat.p_fmat_->GetBatches<SparsePage>().begin());
-      for (size_t rid = 0; rid < nrow; ++rid) {
-        SparsePage::Inst inst = batch[rid];
-        const size_t ibegin = gmat.row_ptr[rid];
-        const size_t iend = gmat.row_ptr[rid + 1];
-        size_t j = 0;
-        size_t fid = 0;
-        for (size_t i = ibegin; i < iend; ++i, ++j) {
-            fid = inst[j].index;
-            const size_t idx = boundary_[fid].index_begin;
-            local_index[idx + rid] = index[i];
-            missing_flags_[idx + rid] = false;
+      size_t rbegin = 0;
+      for (const auto &batch : gmat.p_fmat_->GetBatches<SparsePage>()) {
+        for (size_t rid = 0; rid < batch.Size(); ++rid) {
+          SparsePage::Inst inst = batch[rid];
+          const size_t ibegin = gmat.row_ptr[rbegin + rid];
+          const size_t iend = gmat.row_ptr[rbegin + rid + 1];
+          CHECK_EQ(ibegin + inst.size(), iend);
+          size_t j = 0;
+          size_t fid = 0;
+          for (size_t i = ibegin; i < iend; ++i, ++j) {
+              fid = inst[j].index;
+              const size_t idx = boundary_[fid].index_begin;
+              local_index[idx + rbegin + rid] = index[i];
+              missing_flags_[idx + rbegin + rid] = false;
+          }
         }
+        rbegin += batch.Size();
       }
     }
-
   }
-
-/*  inline void SetIndexAllDense(uint32_t* index, const GHistIndexMatrix& gmat,  const size_t nrow) {
-    uint32_t* local_index = reinterpret_cast<uint32_t*>(&index_[0]);
-    for (size_t rid = 0; rid < nrow; ++rid) {
-      const size_t ibegin = gmat.row_ptr[rid];
-      const size_t iend = gmat.row_ptr[rid + 1];
-      size_t fid = 0;
-      size_t jp = 0;
-      for (size_t i = ibegin; i < iend; ++i, ++jp) {
-          uint32_t* begin = &local_index[boundary_[jp].index_begin];
-          begin[rid] = index[i] - index_base_[jp];
-      }
-    }
-  }*/
 
   template<typename T>
   inline void SetIndex(uint32_t* index, const GHistIndexMatrix& gmat,
@@ -328,77 +231,34 @@ std::cout << "\n";
     std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
 
     T* local_index = reinterpret_cast<T*>(&index_[0]);
-//    std::cout << "\n++local_index before set: \n";
-//    for(size_t i = 0; i < index_.size()/type_size_; ++i)
-//      std::cout << local_index[i] << "   ";
-//
-//    std::cout << "\n++index_base_:\n";
-//    for (int32_t fid = 0; fid < index_base_.size(); ++fid) {
-//      std::cout << index_base_[fid] << "   ";
-//    }
 
-//    std::cout << "\n++bin_id: \n";
-const int32_t nthread = omp_get_max_threads();
-    //#pragma omp parallel for num_threads(nthread)
-std::cout << "\nfid 0:\n";
-    for (size_t rid = 0; rid < nrow; ++rid) {
-  
-        const size_t ibegin = gmat.row_ptr[rid];
-        const size_t iend = gmat.row_ptr[rid + 1];
+    size_t rbegin = 0;
+    for (const auto &batch : gmat.p_fmat_->GetBatches<SparsePage>()) {
+      for (size_t rid = 0; rid < batch.Size(); ++rid) {
+        const size_t ibegin = gmat.row_ptr[rbegin + rid];
+        const size_t iend = gmat.row_ptr[rbegin + rid + 1];
         size_t fid = 0;
         SparsePage::Inst inst = batch[rid];
-
+        CHECK_EQ(ibegin + inst.size(), iend);
         size_t jp = 0;
         for (size_t i = ibegin; i < iend; ++i, ++jp) {
-          const uint32_t bin_id = index[i]/* + disp[jp]*/;
-//          std::cout << bin_id << "   ";
-/*          auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
-                                       gmat.cut.Ptrs().cend(), bin_id);
-          fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
-*/
+          const uint32_t bin_id = index[i];
+
           fid = inst[jp].index;
           if (type_[fid] == kDenseColumn) {
             T* begin = &local_index[boundary_[fid].index_begin];
-            begin[rid] = bin_id - index_base_[fid];
-            if(fid == 0)
-            {
-              std::cout << (uint32_t)(begin[rid]) << ":" << rid << "   ";
-            }
-          //  std::cout <<  (uint32_t)begin[rid] << "   ";
-            missing_flags_[boundary_[fid].index_begin + rid] = false;
+            begin[rid + rbegin] = bin_id - index_base_[fid];
+            missing_flags_[boundary_[fid].index_begin + rid + rbegin] = false;
           } else {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
-            missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = false;
-          //  std::cout <<  (uint32_t)begin[num_nonzeros[fid]]  << "   ";
-            row_ind_[boundary_[fid].index_begin + num_nonzeros[fid]] = rid;
+            row_ind_[boundary_[fid].index_begin + num_nonzeros[fid]] = rid + rbegin;
             ++num_nonzeros[fid];
           }
-//          ++jp;
         }
       }
-std::cout << "\n\n";
-/*
-    for (size_t rid = 0; rid < nrow; ++rid) {
-      const size_t ibegin = gmat.row_ptr[rid];
-      const size_t iend = gmat.row_ptr[rid + 1];
-      size_t fid = 0;
-      for (size_t i = ibegin; i < iend; ++i) {
-        const uint32_t bin_id = gmat.index[i];
-        auto iter = std::upper_bound(gmat.cut.Ptrs().cbegin() + fid,
-                                     gmat.cut.Ptrs().cend(), bin_id);
-        fid = std::distance(gmat.cut.Ptrs().cbegin(), iter) - 1;
-        if (type_[fid] == kDenseColumn) {
-          uint32_t* begin = &index_[boundary_[fid].index_begin];
-          begin[rid] = bin_id - index_base_[fid];
-        } else {
-          uint32_t* begin = &index_[boundary_[fid].index_begin];
-          begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
-          row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
-          ++num_nonzeros[fid];
-        }
-      }
-    }*/
+      rbegin += batch.Size();
+    }
   }
   const size_t GetTypeSize() const {
     return type_size_;
@@ -412,8 +272,6 @@ std::cout << "\n\n";
     // actual offsets by scaling with packing_factor_
     size_t index_begin;
     size_t index_end;
-/*    size_t row_ind_begin;
-    size_t row_ind_end;*/
   };
 
   std::vector<size_t> feature_counts_;

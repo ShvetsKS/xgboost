@@ -30,14 +30,6 @@
 #include "../common/column_matrix.h"
 #include "../common/threading_utils.h"
 
-
-uint64_t get_time() {
- struct timespec t;
- clock_gettime(CLOCK_MONOTONIC, &t);
- return t.tv_sec * 1000000000 + t.tv_nsec;
-} 
-
-
 namespace xgboost {
 namespace tree {
 
@@ -63,14 +55,8 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
                                DMatrix *dmat,
                                const std::vector<RegTree *> &trees) {
   if (dmat != p_last_dmat_ || is_gmat_initialized_ == false) {
-uint64_t t1 = get_time();
     gmat_.Init(dmat, static_cast<uint32_t>(param_.max_bin));
-uint64_t t2 = get_time();
     column_matrix_.Init(gmat_, param_.sparse_threshold);
-uint64_t t3 = get_time();
-std::cout << "\ngmat_.Init time: " << (double)(t2- t1)/(double)1000000000 << "\n";
-
-std::cout << "\ncolumn_matrix_.Init time: " << (double)(t3- t2)/(double)1000000000 << "\n";
 
     if (param_.enable_feature_grouping > 0) {
       gmatb_.Init(gmat_, column_matrix_, param_);
@@ -800,11 +786,8 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(
   size_t nleft_elems = 0;
   size_t nright_elems = 0;
 
-  //const BinIdxType missing_val = std::numeric_limits<BinIdxType>::max();
-
   for (auto rid : rid_span) {
-    if (/*idx[rid] == missing_val */ (*missing_val_flag)[disp + rid]) {
-      std::cout << "\nmissing_val missing_val missing_val missing_val missing_val: " << disp << "   " << rid << "\n";
+    if ((*missing_val_flag)[disp + rid]) {
       if (default_left) {
         p_left_part[nleft_elems++] = rid;
       } else {
@@ -902,7 +885,6 @@ void QuantileHistMaker::Builder::PartitionKernel(
   std::pair<size_t, size_t> child_nodes_sizes;
 
   if (column.GetType() == xgboost::common::kDenseColumn) {
- //   std::cout << "\n!!!!!!!DENSE PartitionDenseKernel !!!!!!!!!\n";
     if (default_left) {
       child_nodes_sizes = PartitionDenseKernel<true>(
                             rid_span, idx_span, split_cond, offset, left, right, missing_val_flag, disp);
@@ -911,7 +893,6 @@ void QuantileHistMaker::Builder::PartitionKernel(
                             rid_span, idx_span, split_cond, offset, left, right, missing_val_flag, disp);
     }
   } else {
- //   std::cout << "\n+++++++++SPARSE PartitionSparseKernel !!!!!!!!!\n";
     if (default_left) {
       child_nodes_sizes = PartitionSparseKernel<true>(rid_span, split_cond, column, left, right, missing_val_flag);
     } else {
@@ -999,10 +980,8 @@ void QuantileHistMaker::Builder::ApplySplit(const std::vector<ExpandEntry> nodes
   // Store results in intermediate buffers from partition_builder_
   common::ParallelFor2d(space, this->nthread_, [&](size_t node_in_set, common::Range1d r) {
     const int32_t nid = nodes[node_in_set].nid;
-//    switch (gmat.index.getBinBound()) {
       switch (column_matrix.GetTypeSize()) {
       case 1:
- //     std::cout << "\nPartitionKernel<uint8_t>!!!\n";
         PartitionKernel<uint8_t>(node_in_set, nid, r,
                   split_conditions[node_in_set], column_matrix, *p_tree);
         break;
