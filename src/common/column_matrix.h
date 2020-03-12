@@ -30,7 +30,7 @@ template <typename T>
 class Column {
  public:
   Column(ColumnType type, const T* index, uint32_t index_base,
-         const size_t* row_ind, size_t len, const std::vector<uint8_t>* missing_flags, const size_t disp)
+         const size_t* row_ind, size_t len, const std::vector<bool>* missing_flags, const size_t disp)
       : type_(type),
         index_(index),
         index_base_(index_base),
@@ -51,11 +51,11 @@ class Column {
     return type_ == ColumnType::kDenseColumn ? idx : row_ind_[idx];  // NOLINT
   }
   inline bool IsMissing(size_t idx) const {
-    return (*missing_flags_)[disp_ + idx] == false;//index_[idx] == std::numeric_limits<T>::max();
+    return (*missing_flags_)[disp_ + idx] == true;//index_[idx] == std::numeric_limits<T>::max();
   }
   const size_t* GetRowData() const { return row_ind_; }
 
-  const std::vector<uint8_t>* missing_flags_;
+  const std::vector<bool>* missing_flags_;
   const size_t disp_;
  private:
   ColumnType type_;
@@ -110,16 +110,16 @@ class ColumnMatrix {
     size_t accum_row_ind_ = 0;
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       boundary_[fid].index_begin = accum_index_;
-      boundary_[fid].row_ind_begin = accum_row_ind_;
+//      boundary_[fid].row_ind_begin = accum_row_ind_;
       if (type_[fid] == kDenseColumn) {
         accum_index_ += static_cast<size_t>(nrow);
-        accum_row_ind_ += static_cast<size_t>(nrow);
+ //       accum_row_ind_ += static_cast<size_t>(nrow);
       } else {
         accum_index_ += feature_counts_[fid];
         accum_row_ind_ += feature_counts_[fid];
       }
       boundary_[fid].index_end = accum_index_;
-      boundary_[fid].row_ind_end = accum_row_ind_;
+//      boundary_[fid].row_ind_end = accum_row_ind_;
     }
 
 //    type_size_ = 1 << gmat.index.getBinBound();
@@ -135,20 +135,32 @@ class ColumnMatrix {
 
     index_.resize(boundary_[nfeature - 1].index_end * type_size_);
     if (!all_dense) {
-      row_ind_.resize(boundary_[nfeature - 1].row_ind_end);
+      row_ind_.resize(boundary_[nfeature - 1].index_end);
     }
 
     // store least bin id for each feature
-    index_base_.resize(nfeature);
+    index_base_ = const_cast<uint32_t*>(gmat.cut.Ptrs().data());
+    /*index_base_.resize(nfeature);
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       index_base_[fid] = gmat.cut.Ptrs()[fid];
-    }
+    }*/
     uint64_t t200 = get_time();
 std::cout << "\ncolumnmatrix.Init initial time: " << (double)(t200- t100)/(double)1000000000 << "\n";
 
     // pre-fill index_ for dense columns
     uint64_t t10 = get_time();
-missing_flags_.resize(boundary_[nfeature - 1].index_end, 0);
+    const bool noMissingValues = gmat.row_ptr[nrow] == nrow * nfeature;
+//std::cout << "!!!!!!!!!!!!nrow * nfeature: " << nrow * nfeature << "\n";
+//std::cout << "!!!!!!!!!!!!gmat.row_ptr[nrow - 1]: " << gmat.row_ptr[nrow - 1] << "\n";
+std::cout << "!!!!!!!!!!!!noMissingValues: " << noMissingValues << "\n";
+//std::cout << "!!!!!!!!!!!!boundary_[nfeature - 1].index_end == gmat.row_ptr[nrow]: " << (bool)(boundary_[nfeature - 1].index_end == gmat.row_ptr[nrow]) << "\n";
+
+  if(noMissingValues)
+    missing_flags_.resize(boundary_[nfeature - 1].index_end, false);
+  else
+    missing_flags_.resize(boundary_[nfeature - 1].index_end, true);
+
+
     uint64_t t20 = get_time();
 std::cout << "\ncolumnmatrix.Init missing_flags_.resize time: " << (double)(t20- t10)/(double)1000000000 << "\n";
 //    #pragma omp parallel for
@@ -170,17 +182,18 @@ std::cout << "\ncolumnmatrix.Init missing_flags_.resize time: " << (double)(t20-
     //std::vector<size_t> num_nonzeros;
     //num_nonzeros.resize(nfeature);
     //std::fill(num_nonzeros.begin(), num_nonzeros.end(), 0);
+
 uint64_t t1 = get_time();
     if (all_dense) {
       switch (gmat.index.getBinBound()) {
         case POWER_OF_TWO_8:
-          SetIndexAllDense(gmat.index.data<uint8_t>(), gmat, nrow, nfeature);
+          SetIndexAllDense(gmat.index.data<uint8_t>(), gmat, nrow, nfeature, noMissingValues);
           break;
         case POWER_OF_TWO_16:
-          SetIndexAllDense(gmat.index.data<uint16_t>(), gmat, nrow, nfeature);
+          SetIndexAllDense(gmat.index.data<uint16_t>(), gmat, nrow, nfeature, noMissingValues);
           break;
         case POWER_OF_TWO_32:
-          SetIndexAllDense(gmat.index.data<uint32_t>(), gmat, nrow, nfeature);
+          SetIndexAllDense(gmat.index.data<uint32_t>(), gmat, nrow, nfeature, noMissingValues);
           break;
       }
     } else {
@@ -210,37 +223,43 @@ std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)100
     Column<T> c(type_[fid],
                 reinterpret_cast<const T*>(&index_[boundary_[fid].index_begin * type_size_]),
                 index_base_[fid], (type_[fid] == ColumnType::kSparseColumn ?
-                &row_ind_[boundary_[fid].row_ind_begin] : nullptr),
+                &row_ind_[boundary_[fid].index_begin] : nullptr),
                 boundary_[fid].index_end - boundary_[fid].index_begin, &missing_flags_, boundary_[fid].index_begin);
     return c;
   }
 
   template<typename T>
-  inline void SetIndexAllDense(T* index, const GHistIndexMatrix& gmat,  const size_t nrow, const size_t nfeature) {
+  inline void SetIndexAllDense(T* index, const GHistIndexMatrix& gmat,  const size_t nrow,
+                               const size_t nfeature,  const bool noMissingValues) {
     T* local_index = reinterpret_cast<T*>(&index_[0]);
-const int32_t nthread = omp_get_max_threads();
 
-/*    #pragma omp parallel for num_threads(nthread) schedule(static)
-    for (bst_omp_uint idx = 0; idx < bst_omp_uint(nbins); ++idx) {
-      for (int32_t tid = 0; tid < nthread; ++tid) {
-        hit_count[idx] += hit_count_tloc_[tid * nbins + idx];
-        hit_count_tloc_[tid * nbins + idx] = 0;  // reset for next batch
+    if(noMissingValues) {
+      const int32_t nthread = omp_get_max_threads();
+      #pragma omp parallel for num_threads(nthread)
+      for (size_t rid = 0; rid < nrow; ++rid) {
+        const size_t ibegin = rid*nfeature;
+        const size_t iend = (rid+1)*nfeature;
+        size_t j = 0;
+        for (size_t i = ibegin; i < iend; ++i, ++j) {
+            const size_t idx = boundary_[j].index_begin;
+            local_index[idx + rid] = index[i];
+        }
+
       }
-    }*/
-
-
-    #pragma omp parallel for num_threads(nthread)
-    for (size_t rid = 0; rid < nrow; ++rid) {
-      const size_t ibegin = /*rid*nfeature;*/gmat.row_ptr[rid];
-      const size_t iend = /*(rid+1)*nfeature;*/gmat.row_ptr[rid + 1];
-//      size_t fid = 0;
-      size_t jp = 0;
-      for (size_t i = ibegin; i < iend; ++i, ++jp) {
-          const size_t idx = /*jp*nrow;*/ boundary_[jp].index_begin;
-          /*T* begin = &local_index[idx];
-          begin[rid] = index[i];*/
-          local_index[idx + rid] = index[i]; 
-          missing_flags_[idx + rid] = 1;
+    } else {
+      const SparsePage& batch = *(gmat.p_fmat_->GetBatches<SparsePage>().begin());
+      for (size_t rid = 0; rid < nrow; ++rid) {
+        SparsePage::Inst inst = batch[rid];
+        const size_t ibegin = gmat.row_ptr[rid];
+        const size_t iend = gmat.row_ptr[rid + 1];
+        size_t j = 0;
+        size_t fid = 0;
+        for (size_t i = ibegin; i < iend; ++i, ++j) {
+            fid = inst[j].index;
+            const size_t idx = boundary_[fid].index_begin;
+            local_index[idx + rid] = index[i];
+            missing_flags_[idx + rid] = false;
+        }
       }
     }
 
@@ -283,6 +302,7 @@ const int32_t nthread = omp_get_max_threads();
 const int32_t nthread = omp_get_max_threads();
     //#pragma omp parallel for num_threads(nthread)
     for (size_t rid = 0; rid < nrow; ++rid) {
+  
         const size_t ibegin = gmat.row_ptr[rid];
         const size_t iend = gmat.row_ptr[rid + 1];
         size_t fid = 0;
@@ -301,13 +321,13 @@ const int32_t nthread = omp_get_max_threads();
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[rid] = bin_id - index_base_[fid];
           //  std::cout <<  (uint32_t)begin[rid] << "   ";
-            missing_flags_[boundary_[fid].index_begin + rid] = 1;
+            missing_flags_[boundary_[fid].index_begin + rid] = false;
           } else {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[num_nonzeros[fid]] = bin_id - index_base_[fid];
-            missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = 1;
+            missing_flags_[boundary_[fid].index_begin + num_nonzeros[fid]] = false;
           //  std::cout <<  (uint32_t)begin[num_nonzeros[fid]]  << "   ";
-            row_ind_[boundary_[fid].row_ind_begin + num_nonzeros[fid]] = rid;
+            row_ind_[boundary_[fid].index_begin + num_nonzeros[fid]] = rid;
             ++num_nonzeros[fid];
           }
 //          ++jp;
@@ -347,8 +367,8 @@ const int32_t nthread = omp_get_max_threads();
     // actual offsets by scaling with packing_factor_
     size_t index_begin;
     size_t index_end;
-    size_t row_ind_begin;
-    size_t row_ind_end;
+/*    size_t row_ind_begin;
+    size_t row_ind_end;*/
   };
 
   std::vector<size_t> feature_counts_;
@@ -357,8 +377,8 @@ const int32_t nthread = omp_get_max_threads();
   std::vector<ColumnBoundary> boundary_;
 
   // index_base_[fid]: least bin id for feature fid
-  std::vector<uint32_t> index_base_;
-  std::vector<uint8_t> missing_flags_;
+  uint32_t* index_base_;
+  std::vector<bool> missing_flags_;
   uint32_t type_size_;
 };
 
