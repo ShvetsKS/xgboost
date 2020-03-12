@@ -153,7 +153,7 @@ std::cout << "\ncolumnmatrix.Init initial time: " << (double)(t200- t100)/(doubl
 //std::cout << "!!!!!!!!!!!!nrow * nfeature: " << nrow * nfeature << "\n";
 //std::cout << "!!!!!!!!!!!!gmat.row_ptr[nrow - 1]: " << gmat.row_ptr[nrow - 1] << "\n";
 std::cout << "!!!!!!!!!!!!noMissingValues: " << noMissingValues << "\n";
-//std::cout << "!!!!!!!!!!!!boundary_[nfeature - 1].index_end == gmat.row_ptr[nrow]: " << (bool)(boundary_[nfeature - 1].index_end == gmat.row_ptr[nrow]) << "\n";
+std::cout << "!!!!!!!!!!!!boundary_[nfeature - 1].index_end == gmat.row_ptr[nrow]: " << (bool)(boundary_[nfeature - 1].index_end == gmat.row_ptr[nrow]) << "\n";
 
   if(noMissingValues)
     missing_flags_.resize(boundary_[nfeature - 1].index_end, false);
