@@ -804,7 +804,7 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(
 
   for (auto rid : rid_span) {
     if (/*idx[rid] == missing_val */ (*missing_val_flag)[disp + rid]) {
-//      std::cout << "\nmissing_val missing_val missing_val missing_val missing_val\n";
+      std::cout << "\nmissing_val missing_val missing_val missing_val missing_val: " << disp << "   " << rid << "\n";
       if (default_left) {
         p_left_part[nleft_elems++] = rid;
       } else {

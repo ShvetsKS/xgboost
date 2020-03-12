@@ -79,18 +79,33 @@ class ColumnMatrix {
                    double  sparse_threshold) {
 
     const int32_t nfeature = static_cast<int32_t>(gmat.cut.Ptrs().size() - 1);
+std::cout << "\nnfeature: " << nfeature << "\n";
     const size_t nrow = gmat.row_ptr.size() - 1;
+std::cout << "\nnrow: " << nrow << "\n";
     uint64_t t100 = get_time();
     // identify type of each column
     feature_counts_.resize(nfeature);
     type_.resize(nfeature);
     std::fill(feature_counts_.begin(), feature_counts_.end(), 0);
+/*std::cout << "\nfeature_counts_:\n";
+for(size_t i = 0; i < nfeature; ++i)
+{
+  std::cout << feature_counts_[i] << "   ";
+}*/
+std::cout << "\ngmat.row_ptr:\n";
+
+for(size_t i = 0; i < 101; ++i)
+{
+  std::cout << gmat.row_ptr[i] << "   ";
+}
+std::cout << "\ngmat.row_ptr[nrow]: " << gmat.row_ptr[nrow];
 
     uint32_t max_val = std::numeric_limits<uint32_t>::max();
     for (int32_t fid = 0; fid < nfeature; ++fid) {
       CHECK_LE(gmat.cut.Ptrs()[fid + 1] - gmat.cut.Ptrs()[fid], max_val);
     }
     bool all_dense = gmat.IsDense();
+std::cout << "\nall_dense: " << all_dense << "\n";
     gmat.GetFeatureCounts(&feature_counts_[0]);
     // classify features
     for (int32_t fid = 0; fid < nfeature; ++fid) {
@@ -112,6 +127,7 @@ class ColumnMatrix {
       boundary_[fid].index_begin = accum_index_;
 //      boundary_[fid].row_ind_begin = accum_row_ind_;
       if (type_[fid] == kDenseColumn) {
+        std::cout << "\n!!!!!!!!!!!!!!!DENSE IN SPARSE!!!!!!!!!!\n";
         accum_index_ += static_cast<size_t>(nrow);
  //       accum_row_ind_ += static_cast<size_t>(nrow);
       } else {
@@ -121,6 +137,21 @@ class ColumnMatrix {
       boundary_[fid].index_end = accum_index_;
 //      boundary_[fid].row_ind_end = accum_row_ind_;
     }
+
+std::cout << "\nfeature_counts_:\n";
+for(size_t i = 0; i < nfeature; ++i)
+{
+  std::cout << feature_counts_[i] << "   ";
+}
+
+std::cout << "\n!!!!!!!!boundary_[nrow]: \n";
+for(size_t i = 0; i < nfeature; ++i)
+{
+ std::cout << "index_begin: " << boundary_[i].index_begin << "   index_end: ";
+ std::cout << boundary_[i].index_end << "   ";
+}
+std::cout << "\n";
+
 
 //    type_size_ = 1 << gmat.index.getBinBound();
 //    std::cout << "\ngmat.max_num_bins_: " << gmat.max_num_bins_ << "\n";
@@ -133,7 +164,7 @@ class ColumnMatrix {
       type_size_ = 4;
     }
 
-    index_.resize(boundary_[nfeature - 1].index_end * type_size_);
+    index_.resize(boundary_[nfeature - 1].index_end * type_size_, 0);
     if (!all_dense) {
       row_ind_.resize(boundary_[nfeature - 1].index_end);
     }
@@ -213,6 +244,14 @@ uint64_t t1 = get_time();
     }
 uint64_t t2 = get_time();
 std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)1000000000 << "\n";
+
+uint8_t* idx = &index_[0];
+std::cout << "\nidx[i]: \n";
+for(size_t i = 0; i < 100; ++i)
+{
+  std::cout << (uint32_t)idx[i] << "   ";
+}
+std::cout << "\n";
 
   }
 
@@ -301,6 +340,7 @@ std::cout << "\ncolumnmatrix.Init switch time: " << (double)(t2- t1)/(double)100
 //    std::cout << "\n++bin_id: \n";
 const int32_t nthread = omp_get_max_threads();
     //#pragma omp parallel for num_threads(nthread)
+std::cout << "\nfid 0:\n";
     for (size_t rid = 0; rid < nrow; ++rid) {
   
         const size_t ibegin = gmat.row_ptr[rid];
@@ -320,6 +360,10 @@ const int32_t nthread = omp_get_max_threads();
           if (type_[fid] == kDenseColumn) {
             T* begin = &local_index[boundary_[fid].index_begin];
             begin[rid] = bin_id - index_base_[fid];
+            if(fid == 0)
+            {
+              std::cout << (uint32_t)(begin[rid]) << ":" << rid << "   ";
+            }
           //  std::cout <<  (uint32_t)begin[rid] << "   ";
             missing_flags_[boundary_[fid].index_begin + rid] = false;
           } else {
@@ -333,6 +377,7 @@ const int32_t nthread = omp_get_max_threads();
 //          ++jp;
         }
       }
+std::cout << "\n\n";
 /*
     for (size_t rid = 0; rid < nrow; ++rid) {
       const size_t ibegin = gmat.row_ptr[rid];
