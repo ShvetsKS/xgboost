@@ -192,13 +192,13 @@ size_t DeviceSketch(int device,
 
 
 enum BinBounds {
-  POWER_OF_TWO_8 = 0,
-  POWER_OF_TWO_16,
-  POWER_OF_TWO_32,
+  UINT8_BINS_TYPE = 0,
+  UINT16_BINS_TYPE,
+  UINT32_BINS_TYPE,
 };
 
 struct Index {
-  Index(): binBound_(POWER_OF_TWO_8), p_(1), disp_ptr_(nullptr) {
+  Index(): binBound_(UINT8_BINS_TYPE), p_(1), disp_ptr_(nullptr) {
     setBinBound(binBound_);
   }
   Index(const Index& i) = delete;
@@ -215,19 +215,19 @@ struct Index {
   void setBinBound(BinBounds binBound) {
     binBound_ = binBound;
     switch (binBound) {
-      case POWER_OF_TWO_8:
+      case UINT8_BINS_TYPE:
         func_ = &getValueFromUint8;
         break;
-      case POWER_OF_TWO_16:
+      case UINT16_BINS_TYPE:
         func_ = &getValueFromUint16;
         break;
-      case POWER_OF_TWO_32:
+      case UINT32_BINS_TYPE:
         func_ = &getValueFromUint32;
         break;
       default:
-        CHECK(binBound == POWER_OF_TWO_8  ||
-              binBound == POWER_OF_TWO_16 ||
-              binBound == POWER_OF_TWO_32);
+        CHECK(binBound == UINT8_BINS_TYPE  ||
+              binBound == UINT16_BINS_TYPE ||
+              binBound == UINT32_BINS_TYPE);
     }
   }
   BinBounds getBinBound() const {
