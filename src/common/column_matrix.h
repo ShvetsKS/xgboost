@@ -136,7 +136,7 @@ class ColumnMatrix {
     index_base_ = const_cast<uint32_t*>(gmat.cut.Ptrs().data());
 
     // pre-fill index_ for dense columns
-    const bool noMissingValues = gmat.row_ptr[nrow] == nrow * nfeature;
+    const bool noMissingValues = false;//gmat.row_ptr[nrow] == nrow * nfeature;
 
     if (noMissingValues) {
       missing_flags_.resize(boundary_[nfeature - 1].index_end, false);
