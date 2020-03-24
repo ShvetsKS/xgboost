@@ -881,6 +881,7 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
 
 if(is_root)
 {
+  std::cout << "\n!!!!!!!!!!ROOOOOT!!!!!!!\n";
   const size_t start_row = rid[0];
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = (start_row + i) * n_features;
