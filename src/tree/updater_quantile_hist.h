@@ -157,11 +157,11 @@ class QuantileHistMaker: public TreeUpdater {
                           const RowSetCollection::Elem row_indices,
                           const GHistIndexMatrix& gmat,
                           const GHistIndexBlockMatrix& gmatb,
-                          GHistRow hist) {
+                          GHistRow hist, int depth) {
       if (param_.enable_feature_grouping > 0) {
         hist_builder_.BuildBlockHist(gpair, row_indices, gmatb, hist);
       } else {
-        hist_builder_.BuildHist(gpair, row_indices, gmat, hist, data_layout_ != kSparseData);
+        hist_builder_.BuildHist(gpair, row_indices, gmat, hist, data_layout_ != kSparseData, depth);
       }
     }
 
@@ -253,7 +253,7 @@ class QuantileHistMaker: public TreeUpdater {
     void BuildLocalHistograms(const GHistIndexMatrix &gmat,
                               const GHistIndexBlockMatrix &gmatb,
                               RegTree *p_tree,
-                              const std::vector<GradientPair> &gpair_h);
+                              const std::vector<GradientPair> &gpair_h, int depth);
 
     void AddHistRows(int *starting_index, int *sync_count);
 

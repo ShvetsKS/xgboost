@@ -153,7 +153,7 @@ void QuantileHistMaker::Builder::BuildHistogramsLossGuide(
   int sync_count = 0;
 
   AddHistRows(&starting_index, &sync_count);
-  BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
+  BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, -1);
   SyncHistograms(starting_index, sync_count, p_tree);
 }
 
@@ -180,7 +180,7 @@ void QuantileHistMaker::Builder::BuildLocalHistograms(
     const GHistIndexMatrix &gmat,
     const GHistIndexBlockMatrix &gmatb,
     RegTree *p_tree,
-    const std::vector<GradientPair> &gpair_h) {
+    const std::vector<GradientPair> &gpair_h, int depth) {
   builder_monitor_.Start("BuildLocalHistograms");
 
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
@@ -207,7 +207,7 @@ void QuantileHistMaker::Builder::BuildLocalHistograms(
     auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
                                       start_of_row_set + r.end(),
                                       nid);
-    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set));
+    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set), depth);
   });
 
   builder_monitor_.Stop("BuildLocalHistograms");
@@ -354,7 +354,7 @@ void QuantileHistMaker::Builder::ExpandWithDepthWise(
                   &nodes_for_subtraction_trick_, p_tree);
     AddHistRows(&starting_index, &sync_count);
 
-    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
+    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth);
     SyncHistograms(starting_index, sync_count, p_tree);
 
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
