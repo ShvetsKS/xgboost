@@ -884,7 +884,7 @@ if(is_root)
   const size_t start_row = rid[0];
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = (start_row + i) * n_features;
-    const size_t idx_gh = two * rid[i];
+    const size_t idx_gh = two * (start_row + i);
 
 /*    if (do_prefetch) {
       const size_t icol_start_prefetch = (start_row + i + Prefetch::kPrefetchOffset) * n_features;
@@ -909,7 +909,6 @@ if(is_root)
 }
 else
 {
-    std::cout << "\n!!!!!!!!!!NOT ROOOOOT!!!!!!!\n";
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = rid[i] * n_features;
     const size_t idx_gh = two * rid[i];
