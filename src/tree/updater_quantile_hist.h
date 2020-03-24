@@ -210,12 +210,12 @@ class QuantileHistMaker: public TreeUpdater {
                         const GHistIndexMatrix& gmat,
                         const ColumnMatrix& column_matrix,
                         const HistCollection& hist,
-                        RegTree* p_tree);
+                        RegTree* p_tree, int depth);
 
     template <typename BinIdxType>
     void PartitionKernel(const size_t node_in_set, const size_t nid, common::Range1d range,
                          const int32_t split_cond,
-                         const ColumnMatrix& column_matrix, const RegTree& tree);
+                         const ColumnMatrix& column_matrix, const RegTree& tree, int depth);
 
     void AddSplitsToRowSet(const std::vector<ExpandEntry>& nodes, RegTree* p_tree);
 

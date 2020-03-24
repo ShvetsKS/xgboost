@@ -291,7 +291,7 @@ void QuantileHistMaker::Builder::EvaluateAndApplySplits(
   std::vector<ExpandEntry> nodes_for_apply_split;
   AddSplitsToTree(gmat, p_tree, num_leaves, depth, timestamp,
                   &nodes_for_apply_split, temp_qexpand_depth);
-  ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree);
+  ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree, depth);
 }
 
 // Split nodes to 2 sets depending on amount of rows in each node
@@ -412,7 +412,7 @@ void QuantileHistMaker::Builder::ExpandWithLossGuide(
                          e.best.DefaultLeft(), e.weight, left_leaf_weight,
                          right_leaf_weight, e.best.loss_chg, e.stats.sum_hess);
 
-      this->ApplySplit({candidate}, gmat, column_matrix, hist_, p_tree);
+      this->ApplySplit({candidate}, gmat, column_matrix, hist_, p_tree, 1);
 
       const int cleft = (*p_tree)[nid].LeftChild();
       const int cright = (*p_tree)[nid].RightChild();
@@ -775,7 +775,7 @@ void QuantileHistMaker::Builder::EvaluateSplits(const std::vector<ExpandEntry>& 
 // on comparison of indexes values (idx_span) and split point (split_cond)
 // Handle dense columns
 // Analog of std::stable_partition, but in no-inplace manner
-template <bool default_left, typename BinIdxType>
+template <bool default_left, bool is_root, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionDenseKernel(const Column<BinIdxType>& column,
       common::Span<const size_t> rid_span, const int32_t split_cond,
       common::Span<size_t> left_part, common::Span<size_t> right_part) {
@@ -786,6 +786,30 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(const Column<BinIdxType>& 
   size_t nleft_elems = 0;
   size_t nright_elems = 0;
 
+if(is_root)
+{
+  const size_t size_r = rid_span.size();
+  const size_t first_r = rid_span.data()[0];
+  for (size_t rid = 0; rid < size_r; ++rid) {
+    const size_t cur_rid = first_r + rid;
+    if (column.IsMissing(cur_rid)) {
+      if (default_left) {
+        p_left_part[nleft_elems++] = cur_rid;
+      } else {
+        p_right_part[nright_elems++] = cur_rid;
+      }
+    } else {
+      if ((static_cast<int32_t>(idx[cur_rid]) + offset) <= split_cond) {
+        p_left_part[nleft_elems++] = cur_rid;
+      } else {
+        p_right_part[nright_elems++] = cur_rid;
+      }
+    }
+  }
+  return {nleft_elems, nright_elems};
+}
+else
+{
   for (auto rid : rid_span) {
     if (column.IsMissing(rid)) {
       if (default_left) {
@@ -802,6 +826,8 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(const Column<BinIdxType>& 
     }
   }
   return {nleft_elems, nright_elems};
+  
+}
 }
 
 // Split row indexes (rid_span) to 2 parts (left_part, right_part) depending
@@ -866,7 +892,7 @@ inline std::pair<size_t, size_t> PartitionSparseKernel(
 template <typename BinIdxType>
 void QuantileHistMaker::Builder::PartitionKernel(
     const size_t node_in_set, const size_t nid, common::Range1d range,
-    const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree) {
+    const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree, int depth) {
   const size_t* rid = row_set_collection_[nid].begin;
   common::Span<const size_t> rid_span(rid + range.begin(), rid + range.end());
   common::Span<size_t> left  = partition_builder_.GetLeftBuffer(node_in_set,
@@ -878,12 +904,14 @@ void QuantileHistMaker::Builder::PartitionKernel(
   const auto column = column_matrix.GetColumn<BinIdxType>(fid);
 
   std::pair<size_t, size_t> child_nodes_sizes;
-
+  const bool is_root = depth == 0;
+  if(is_root)
+  {
   if (column.GetType() == xgboost::common::kDenseColumn) {
     if (default_left) {
-      child_nodes_sizes = PartitionDenseKernel<true>(column, rid_span, split_cond, left, right);
+      child_nodes_sizes = PartitionDenseKernel<true, true>(column, rid_span, split_cond, left, right);
     } else {
-      child_nodes_sizes = PartitionDenseKernel<false>(column, rid_span, split_cond, left, right);
+      child_nodes_sizes = PartitionDenseKernel<false, true>(column, rid_span, split_cond, left, right);
     }
   } else {
     if (default_left) {
@@ -891,6 +919,24 @@ void QuantileHistMaker::Builder::PartitionKernel(
     } else {
       child_nodes_sizes = PartitionSparseKernel<false>(rid_span, split_cond, column, left, right);
     }
+  }
+
+  }
+  else
+  {
+  if (column.GetType() == xgboost::common::kDenseColumn) {
+    if (default_left) {
+      child_nodes_sizes = PartitionDenseKernel<true, false>(column, rid_span, split_cond, left, right);
+    } else {
+      child_nodes_sizes = PartitionDenseKernel<false, false>(column, rid_span, split_cond, left, right);
+    }
+  } else {
+    if (default_left) {
+      child_nodes_sizes = PartitionSparseKernel<true>(rid_span, split_cond, column, left, right);
+    } else {
+      child_nodes_sizes = PartitionSparseKernel<false>(rid_span, split_cond, column, left, right);
+    }
+  }
   }
 
   const size_t n_left  = child_nodes_sizes.first;
@@ -946,7 +992,7 @@ void QuantileHistMaker::Builder::ApplySplit(const std::vector<ExpandEntry> nodes
                                             const GHistIndexMatrix& gmat,
                                             const ColumnMatrix& column_matrix,
                                             const HistCollection& hist,
-                                            RegTree* p_tree) {
+                                            RegTree* p_tree, int depth) {
   builder_monitor_.Start("ApplySplit");
 
   // 1. Find split condition for each split
@@ -976,15 +1022,15 @@ void QuantileHistMaker::Builder::ApplySplit(const std::vector<ExpandEntry> nodes
       switch (column_matrix.GetTypeSize()) {
       case sizeof(uint8_t):
         PartitionKernel<uint8_t>(node_in_set, nid, r,
-                  split_conditions[node_in_set], column_matrix, *p_tree);
+                  split_conditions[node_in_set], column_matrix, *p_tree, depth);
         break;
       case sizeof(uint16_t):
         PartitionKernel<uint16_t>(node_in_set, nid, r,
-                  split_conditions[node_in_set], column_matrix, *p_tree);
+                  split_conditions[node_in_set], column_matrix, *p_tree, depth);
         break;
       case sizeof(uint32_t):
         PartitionKernel<uint32_t>(node_in_set, nid, r,
-                  split_conditions[node_in_set], column_matrix, *p_tree);
+                  split_conditions[node_in_set], column_matrix, *p_tree, depth);
         break;
       default:
         CHECK(false);  // no default behavior
