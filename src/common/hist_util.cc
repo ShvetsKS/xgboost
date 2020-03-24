@@ -886,7 +886,7 @@ if(is_root)
     const size_t icol_start = (start_row + i) * n_features;
     const size_t idx_gh = two * (start_row + i);
 
-/*    if (do_prefetch) {
+    if (do_prefetch) {
       const size_t icol_start_prefetch = (start_row + i + Prefetch::kPrefetchOffset) * n_features;
 
       PREFETCH_READ_T0(pgh + two * (start_row + i + Prefetch::kPrefetchOffset));
@@ -894,7 +894,8 @@ if(is_root)
            j += GetPrefetchStep<BinIdxType>()) {
         PREFETCH_READ_T0(gradient_index + j);
       }
-    }*/
+    }
+    
     /* index for offsets should be in interval [0, n_features - 1] */
     size_t offset_idx = 0;
     const BinIdxType* gradient_index_local = gradient_index + icol_start;
