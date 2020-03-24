@@ -886,7 +886,7 @@ if(is_root)
     const size_t icol_start = (start_row + i) * n_features;
     const size_t idx_gh = two * rid[i];
 
-    if (do_prefetch) {
+/*    if (do_prefetch) {
       const size_t icol_start_prefetch = (start_row + i + Prefetch::kPrefetchOffset) * n_features;
 
       PREFETCH_READ_T0(pgh + two * (start_row + i + Prefetch::kPrefetchOffset));
@@ -894,12 +894,13 @@ if(is_root)
            j += GetPrefetchStep<BinIdxType>()) {
         PREFETCH_READ_T0(gradient_index + j);
       }
-    }
+    }*/
     /* index for offsets should be in interval [0, n_features - 1] */
     size_t offset_idx = 0;
-    for (size_t j = icol_start; j < icol_start + n_features; ++j, ++offset_idx) {
-      const uint32_t idx_bin = two * (static_cast<uint32_t>(gradient_index[j]) +
-                                      offsets[offset_idx]);
+    const BinIdxType* gradient_index_local = gradient_index + icol_start;
+    for (size_t j = 0; j < n_features; ++j) {
+      const uint32_t idx_bin = two * (static_cast<uint32_t>(gradient_index_local[j]) +
+                                      offsets[j]);
 
       hist_data[idx_bin]   += pgh[idx_gh];
       hist_data[idx_bin+1] += pgh[idx_gh+1];
@@ -923,8 +924,9 @@ else
     }
     /* index for offsets should be in interval [0, n_features - 1] */
     size_t offset_idx = 0;
-    for (size_t j = icol_start; j < icol_start + n_features; ++j, ++offset_idx) {
-      const uint32_t idx_bin = two * (static_cast<uint32_t>(gradient_index[j]) +
+    const BinIdxType* gradient_index_local = gradient_index + icol_start;
+    for (size_t j = 0; j < /*icol_start + */n_features; ++j, ++offset_idx) {
+      const uint32_t idx_bin = two * (static_cast<uint32_t>(gradient_index_local[j]) +
                                       offsets[offset_idx]);
 
       hist_data[idx_bin]   += pgh[idx_gh];
