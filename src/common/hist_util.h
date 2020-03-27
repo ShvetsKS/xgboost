@@ -209,6 +209,101 @@ HistogramCuts AdapterDeviceSketch(AdapterT* adapter, int num_bins,
                                   float missing,
                                   size_t sketch_batch_num_elements = 0);
 
+
+enum BinBounds {
+  UINT8_BINS_TYPE = 0,
+  UINT16_BINS_TYPE,
+  UINT32_BINS_TYPE,
+};
+
+struct Index {
+  Index(): binBound_(UINT8_BINS_TYPE), p_(1), offset_ptr_(nullptr) {
+    setBinBound(binBound_);
+  }
+  Index(const Index& i) = delete;
+  Index& operator=(Index i) = delete;
+  Index(Index&& i) = delete;
+  Index& operator=(Index&& i) = delete;
+  uint32_t operator[](size_t i) const {
+    if (offset_ptr_ != nullptr) {
+      return func_(data_ptr_, i) + offset_ptr_[i%p_];
+    } else {
+      return func_(data_ptr_, i);
+    }
+  }
+  void setBinBound(BinBounds binBound) {
+    binBound_ = binBound;
+    switch (binBound) {
+      case UINT8_BINS_TYPE:
+        func_ = &getValueFromUint8;
+        break;
+      case UINT16_BINS_TYPE:
+        func_ = &getValueFromUint16;
+        break;
+      case UINT32_BINS_TYPE:
+        func_ = &getValueFromUint32;
+        break;
+      default:
+        CHECK(binBound == UINT8_BINS_TYPE  ||
+              binBound == UINT16_BINS_TYPE ||
+              binBound == UINT32_BINS_TYPE);
+    }
+  }
+  BinBounds getBinBound() const {
+    return binBound_;
+  }
+  template<typename T>
+  T* data() const {
+    return static_cast<T*>(data_ptr_);
+  }
+  uint32_t* offset() const {
+    return offset_ptr_;
+  }
+  size_t offsetSize() const {
+    return offset_.size();
+  }
+  size_t size() const {
+    return data_.size() / (1 << binBound_);
+  }
+  void resize(const size_t nBytesData) {
+    data_.resize(nBytesData);
+    data_ptr_ = reinterpret_cast<void*>(data_.data());
+  }
+  void resizeOffset(const size_t nDisps) {
+    offset_.resize(nDisps);
+    offset_ptr_ = offset_.data();
+    p_ = nDisps;
+  }
+  std::vector<uint8_t>::const_iterator begin() const {
+    return data_.begin();
+  }
+  std::vector<uint8_t>::const_iterator end() const {
+    return data_.end();
+  }
+
+ private:
+  static uint32_t getValueFromUint8(void *t, size_t i) {
+    return reinterpret_cast<uint8_t*>(t)[i];
+  }
+  static uint32_t getValueFromUint16(void* t, size_t i) {
+    return reinterpret_cast<uint16_t*>(t)[i];
+  }
+  static uint32_t getValueFromUint32(void* t, size_t i) {
+    return reinterpret_cast<uint32_t*>(t)[i];
+  }
+
+  typedef uint32_t (*Func)(void*, size_t);
+
+  std::vector<uint8_t> data_;
+  std::vector<uint32_t> offset_;  // size of this field is equal to number of features
+  void* data_ptr_;
+  uint32_t* offset_ptr_;
+  size_t p_;
+  BinBounds binBound_;
+  Func func_;
+};
+
+
 /*!
  * \brief preprocessed global index matrix, in CSR format
  *
@@ -219,19 +314,22 @@ struct GHistIndexMatrix {
   /*! \brief row pointer to rows by element position */
   std::vector<size_t> row_ptr;
   /*! \brief The index data */
-  std::vector<uint32_t> index;
+  Index index;
   /*! \brief hit count of each index */
   std::vector<size_t> hit_count;
   /*! \brief The corresponding cuts */
   HistogramCuts cut;
+  DMatrix* p_fmat_;
+  size_t max_num_bins_;
   // Create a global histogram matrix, given cut
   void Init(DMatrix* p_fmat, int max_num_bins);
-  // get i-th row
-  inline GHistIndexRow operator[](size_t i) const {
-    return {&index[0] + row_ptr[i],
-            static_cast<GHistIndexRow::index_type>(
-                row_ptr[i + 1] - row_ptr[i])};
-  }
+
+  template<typename BinIdxType>
+  void SetIndexData(BinIdxType* const index_data, size_t batch_threads, const SparsePage& batch,
+                    size_t rbegin, const uint32_t* offsets, size_t nbins);
+  void SetIndexDataWithoutOffset(uint32_t* const index_data, size_t batch_threads,
+                                 const SparsePage& batch, size_t rbegin, size_t nbins);
+
   inline void GetFeatureCounts(size_t* counts) const {
     auto nfeature = cut.Ptrs().size() - 1;
     for (unsigned fid = 0; fid < nfeature; ++fid) {
@@ -242,9 +340,13 @@ struct GHistIndexMatrix {
       }
     }
   }
+  inline bool IsDense() const {
+    return isDense_;
+  }
 
  private:
   std::vector<size_t> hit_count_tloc_;
+  bool isDense_;
 };
 
 struct GHistIndexBlock {
