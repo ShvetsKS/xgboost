@@ -518,7 +518,7 @@ def test_kwargs_grid_search():
     from sklearn import datasets
 
     params = {'tree_method': 'hist'}
-    clf = xgb.XGBClassifier(n_estimators=1, learning_rate=1.0, **params)
+    clf = xgb.XGBClassifier(n_estimators=5, learning_rate=1.0, **params)
     assert clf.get_params()['tree_method'] == 'hist'
     # 'max_leaves' is not a default argument of XGBClassifier
     # Check we can still do grid search over this parameter

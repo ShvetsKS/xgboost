@@ -407,7 +407,60 @@ class GHistIndexBlockMatrix {
  *     for that particular bin
  *  Uses global bin id so as to represent all features simultaneously
  */
-using GHistRow = Span<tree::GradStats>;
+
+struct GradStatHist {
+  using GradType = float;
+  /*! \brief sum gradient statistics */
+  GradType sum_grad { 0 };
+  /*! \brief sum hessian statistics */
+  GradType sum_hess { 0 };
+
+  GradStatHist() {
+    static_assert(sizeof(GradStatHist) == 8,
+                  "Size of GradStatHist is not 8 bytes.");
+  }
+
+  inline void Add(const GradStatHist& b) {
+    sum_grad += b.sum_grad;
+    sum_hess += b.sum_hess;
+  }
+
+  inline void Add(const tree::GradStats& b) {
+    sum_grad += b.sum_grad;
+    sum_hess += b.sum_hess;
+  }
+
+  inline void Add(const GradientPair& p) {
+    this->Add(p.GetGrad(), p.GetHess());
+  }
+
+  inline void Add(const GradType& grad, const GradType& hess) {
+    sum_grad += grad;
+    sum_hess += hess;
+  }
+
+  inline tree::GradStats ToGradStat() const {
+    return tree::GradStats(sum_grad, sum_hess);
+  }
+
+  inline void SetSubstract(const GradStatHist& a, const GradStatHist& b) {
+    sum_grad = a.sum_grad - b.sum_grad;
+    sum_hess = a.sum_hess - b.sum_hess;
+  }
+
+  inline void SetSubstract(const tree::GradStats& a, const GradStatHist& b) {
+    sum_grad = a.sum_grad - b.sum_grad;
+    sum_hess = a.sum_hess - b.sum_hess;
+  }
+
+  inline GradType GetGrad() const { return sum_grad; }
+  inline GradType GetHess() const { return sum_hess; }
+  inline static void Reduce(GradStatHist& a, const GradStatHist& b) { // NOLINT(*)
+    a.Add(b);
+  }
+};
+
+using GHistRow = Span<GradStatHist>;
 
 /*!
  * \brief fill a histogram by zeros
@@ -439,8 +492,8 @@ class HistCollection {
   GHistRow operator[](bst_uint nid) const {
     constexpr uint32_t kMax = std::numeric_limits<uint32_t>::max();
     CHECK_NE(row_ptr_[nid], kMax);
-    tree::GradStats* ptr =
-        const_cast<tree::GradStats*>(dmlc::BeginPtr(data_) + row_ptr_[nid]);
+    GradStatHist* ptr =
+        const_cast<GradStatHist*>(dmlc::BeginPtr(data_) + row_ptr_[nid]);
     return {ptr, nbins_};
   }
 
@@ -483,7 +536,7 @@ class HistCollection {
   /*! \brief amount of active nodes in hist collection */
   uint32_t n_nodes_added_ = 0;
 
-  std::vector<tree::GradStats> data_;
+  std::vector<GradStatHist> data_;
 
   /*! \brief row_ptr_[nid] locates bin for histogram of node nid */
   std::vector<size_t> row_ptr_;
