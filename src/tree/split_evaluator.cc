@@ -138,6 +138,15 @@ class ElasticNet final : public SplitEvaluator {
       return 0.0;
     }
   }
+  inline float ThresholdL1(float g) const {
+    if (g > params_->reg_alpha) {
+      return g - params_->reg_alpha;
+    } else if (g < -params_->reg_alpha) {
+      return g + params_->reg_alpha;
+    } else {
+      return 0.0;
+    }
+  }
 };
 
 XGBOOST_REGISTER_SPLIT_EVALUATOR(ElasticNet, "elastic_net")

@@ -1077,6 +1077,7 @@ void QuantileHistMaker::Builder::InitNewNode(int nid,
   {
     auto& stats = snode_[nid].stats;
     GHistRow hist = hist_[nid];
+    GradientPair grad_stat;
     if (tree[nid].IsRoot()) {
       if (data_layout_ == kDenseDataZeroBased || data_layout_ == kDenseDataOneBased) {
         const std::vector<uint32_t>& row_ptr = gmat.cut.Ptrs();
@@ -1084,16 +1085,17 @@ void QuantileHistMaker::Builder::InitNewNode(int nid,
         const uint32_t iend = row_ptr[fid_least_bins_ + 1];
         auto begin = hist.data();
         for (uint32_t i = ibegin; i < iend; ++i) {
-          const GradStats et = begin[i];
-          stats.Add(et.sum_grad, et.sum_hess);
+          const GradientPair et = begin[i];
+          grad_stat.Add(et.GetGrad(), et.GetHess());
         }
       } else {
         const RowSetCollection::Elem e = row_set_collection_[nid];
         for (const size_t* it = e.begin; it < e.end; ++it) {
-          stats.Add(gpair[*it]);
+          grad_stat.Add(gpair[*it]);
         }
       }
-      histred_.Allreduce(&snode_[nid].stats, 1);
+      histred_.Allreduce(&grad_stat, 1);
+      snode_[nid].stats = tree::GradStats(grad_stat.GetGrad(), grad_stat.GetHess());
     } else {
       int parent_id = tree[nid].Parent();
       if (tree[nid].IsLeftChild()) {

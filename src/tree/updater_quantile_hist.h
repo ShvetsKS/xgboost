@@ -366,7 +366,7 @@ class QuantileHistMaker: public TreeUpdater {
 
     common::Monitor builder_monitor_;
     common::ParallelGHistBuilder hist_buffer_;
-    rabit::Reducer<GradStats, GradStats::Reduce> histred_;
+    rabit::Reducer<GradientPair, GradientPair::Reduce> histred_;
   };
 
   std::unique_ptr<Builder> builder_;

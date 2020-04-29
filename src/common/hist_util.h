@@ -401,13 +401,7 @@ class GHistIndexBlockMatrix {
   std::vector<Block> blocks_;
 };
 
-/*!
- * \brief histogram of gradient statistics for a single node.
- *  Consists of multiple GradStats, each entry showing total gradient statistics
- *     for that particular bin
- *  Uses global bin id so as to represent all features simultaneously
- */
-using GHistRow = Span<tree::GradStats>;
+using GHistRow = Span<GradientPair>;
 
 /*!
  * \brief fill a histogram by zeros
@@ -439,8 +433,8 @@ class HistCollection {
   GHistRow operator[](bst_uint nid) const {
     constexpr uint32_t kMax = std::numeric_limits<uint32_t>::max();
     CHECK_NE(row_ptr_[nid], kMax);
-    tree::GradStats* ptr =
-        const_cast<tree::GradStats*>(dmlc::BeginPtr(data_) + row_ptr_[nid]);
+    GradientPair* ptr =
+        const_cast<GradientPair*>(dmlc::BeginPtr(data_) + row_ptr_[nid]);
     return {ptr, nbins_};
   }
 
@@ -483,7 +477,7 @@ class HistCollection {
   /*! \brief amount of active nodes in hist collection */
   uint32_t n_nodes_added_ = 0;
 
-  std::vector<tree::GradStats> data_;
+  std::vector<GradientPair> data_;
 
   /*! \brief row_ptr_[nid] locates bin for histogram of node nid */
   std::vector<size_t> row_ptr_;

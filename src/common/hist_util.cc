@@ -842,7 +842,7 @@ void InitilizeHistByZeroes(GHistRow hist, size_t begin, size_t end) {
  * \brief Increment hist as dst += add in range [begin, end)
  */
 void IncrementHist(GHistRow dst, const GHistRow add, size_t begin, size_t end) {
-  using FPType = decltype(tree::GradStats::sum_grad);
+  using FPType = GradientPair::ValueT;
   FPType* pdst = reinterpret_cast<FPType*>(dst.data());
   const FPType* padd = reinterpret_cast<const FPType*>(add.data());
 
@@ -855,7 +855,7 @@ void IncrementHist(GHistRow dst, const GHistRow add, size_t begin, size_t end) {
  * \brief Copy hist from src to dst in range [begin, end)
  */
 void CopyHist(GHistRow dst, const GHistRow src, size_t begin, size_t end) {
-  using FPType = decltype(tree::GradStats::sum_grad);
+  using FPType = GradientPair::ValueT;
   FPType* pdst = reinterpret_cast<FPType*>(dst.data());
   const FPType* psrc = reinterpret_cast<const FPType*>(src.data());
 
@@ -869,7 +869,7 @@ void CopyHist(GHistRow dst, const GHistRow src, size_t begin, size_t end) {
  */
 void SubtractionHist(GHistRow dst, const GHistRow src1, const GHistRow src2,
                      size_t begin, size_t end) {
-  using FPType = decltype(tree::GradStats::sum_grad);
+  using FPType = GradientPair::ValueT;
   FPType* pdst = reinterpret_cast<FPType*>(dst.data());
   const FPType* psrc1 = reinterpret_cast<const FPType*>(src1.data());
   const FPType* psrc2 = reinterpret_cast<const FPType*>(src2.data());
@@ -1027,7 +1027,7 @@ void GHistBuilder::BuildHist(const std::vector<GradientPair>& gpair,
                              const GHistIndexMatrix& gmat,
                              GHistRow hist,
                              bool isDense) {
-  using FPType = decltype(tree::GradStats::sum_grad);
+  using FPType = GradientPair::ValueT;
   const size_t nrows = row_indices.Size();
   const size_t no_prefetch_size = Prefetch::NoPrefetchSize(nrows);
 
@@ -1058,7 +1058,7 @@ void GHistBuilder::BuildBlockHist(const std::vector<GradientPair>& gpair,
 #if defined(_OPENMP)
   const auto nthread = static_cast<bst_omp_uint>(this->nthread_);  // NOLINT
 #endif  // defined(_OPENMP)
-  tree::GradStats* p_hist = hist.data();
+  GradientPair* p_hist = hist.data();
 
 #pragma omp parallel for num_threads(nthread) schedule(guided)
   for (bst_omp_uint bid = 0; bid < nblock; ++bid) {
