@@ -26,6 +26,7 @@ set_default_configuration_release()
 option(BUILD_C_DOC "Build documentation for C APIs using Doxygen." OFF)
 option(USE_OPENMP "Build with OpenMP support." ON)
 option(BUILD_STATIC_LIB "Build static library" OFF)
+option(USE_EXTERNAL_KERNELS "Build with external kernels" OFF)
 ## Bindings
 option(JVM_BINDINGS "Build JVM bindings" OFF)
 option(R_LIB "Build shared library for R package" OFF)
@@ -116,7 +117,7 @@ set_target_properties(dmlc PROPERTIES
   CXX_STANDARD_REQUIRED ON
   POSITION_INDEPENDENT_CODE ON)
 list(APPEND LINKED_LIBRARIES_PRIVATE dmlc)
-
+list(APPEND LINKED_LIBRARIES_PRIVATE "${xgboost_SOURCE_DIR}/external_kernels/libextern_kernels.a")
 # rabit
 set(RABIT_BUILD_DMLC OFF)
 set(DMLC_ROOT ${xgboost_SOURCE_DIR}/dmlc-core)
@@ -149,6 +150,7 @@ list(APPEND LINKED_LIBRARIES_PRIVATE Threads::Threads ${CMAKE_THREAD_LIBS_INIT})
 add_subdirectory(${xgboost_SOURCE_DIR}/plugin)
 add_subdirectory(${xgboost_SOURCE_DIR}/src)
 target_link_libraries(objxgboost PUBLIC dmlc)
+
 set(XGBOOST_OBJ_SOURCES "${XGBOOST_OBJ_SOURCES};$<TARGET_OBJECTS:objxgboost>")
 
 #-- library

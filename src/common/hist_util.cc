@@ -450,6 +450,11 @@ void DenseCuts::Init
 }
 
 void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
+#if defined(XGBOOST_USE_EXTERNAL_KERNELS)
+  kernel = new XGBoostExternalKernels;
+#else
+  kernel = new XGBoostInternalKernels;
+#endif
   cut.Build(p_fmat, max_bins);
   max_num_bins = max_bins;
   const int32_t nthread = omp_get_max_threads();
@@ -902,7 +907,6 @@ struct Prefetch {
 
 constexpr size_t Prefetch::kNoPrefetchSize;
 
-
 template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                           const RowSetCollection::Elem row_indices,
@@ -915,33 +919,9 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
   const BinIdxType* gradient_index = gmat.index.data<BinIdxType>();
   const uint32_t* offsets = gmat.index.Offset();
   FPType* hist_data = reinterpret_cast<FPType*>(hist.data());
-  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
-                           // 2 FP values: gradient and hessian.
-                           // So we need to multiply each row-index/bin-index by 2
-                           // to work with gradient pairs as a singe row FP array
-
-  for (size_t i = 0; i < size; ++i) {
-    const size_t icol_start = rid[i] * n_features;
-    const size_t idx_gh = two * rid[i];
-
-    if (do_prefetch) {
-      const size_t icol_start_prefetch = rid[i + Prefetch::kPrefetchOffset] * n_features;
-
-      PREFETCH_READ_T0(pgh + two * rid[i + Prefetch::kPrefetchOffset]);
-      for (size_t j = icol_start_prefetch; j < icol_start_prefetch + n_features;
-           j += Prefetch::GetPrefetchStep<BinIdxType>()) {
-        PREFETCH_READ_T0(gradient_index + j);
-      }
-    }
-    const BinIdxType* gr_index_local = gradient_index + icol_start;
-    for (size_t j = 0; j < n_features; ++j) {
-      const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[j]) +
-                                      offsets[j]);
-
-      hist_data[idx_bin]   += pgh[idx_gh];
-      hist_data[idx_bin+1] += pgh[idx_gh+1];
-    }
-  }
+  gmat.kernel->template SeqBuildHist<FPType, do_prefetch, BinIdxType>(size, n_features,
+                                                                      rid, pgh, gradient_index,
+                                                                      offsets, hist_data);
 }
 
 template<typename FPType, bool do_prefetch>
@@ -1114,3 +1094,36 @@ void GHistBuilder::SubtractionTrick(GHistRow self, GHistRow sibling, GHistRow pa
 
 }  // namespace common
 }  // namespace xgboost
+
+template<typename FPType, bool do_prefetch, typename BinIdxType>
+void XGBoostInternalKernels::X_SeqBuildHist(const size_t size, const size_t n_features, const size_t* rid, const float* pgh,
+                             const BinIdxType* gradient_index, const uint32_t* offsets,
+                             FPType* hist_data) {
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+                           // 2 FP values: gradient and hessian.
+                           // So we need to multiply each row-index/bin-index by 2
+                           // to work with gradient pairs as a singe row FP array
+
+  for (size_t i = 0; i < size; ++i) {
+    const size_t icol_start = rid[i] * n_features;
+    const size_t idx_gh = two * rid[i];
+
+    if (do_prefetch) {
+      const size_t icol_start_prefetch = rid[i + xgboost::common::Prefetch::kPrefetchOffset] * n_features;
+
+      PREFETCH_READ_T0(pgh + two * rid[i + xgboost::common::Prefetch::kPrefetchOffset]);
+      for (size_t j = icol_start_prefetch; j < icol_start_prefetch + n_features;
+           j += xgboost::common::Prefetch::GetPrefetchStep<BinIdxType>()) {
+        PREFETCH_READ_T0(gradient_index + j);
+      }
+    }
+    const BinIdxType* gr_index_local = gradient_index + icol_start;
+    for (size_t j = 0; j < n_features; ++j) {
+      const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[j]) +
+                                      offsets[j]);
+
+      hist_data[idx_bin]   += pgh[idx_gh];
+      hist_data[idx_bin+1] += pgh[idx_gh+1];
+    }
+  }
+}

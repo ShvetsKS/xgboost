@@ -22,9 +22,22 @@
 #include "./quantile.h"
 #include "./timer.h"
 #include "../include/rabit/rabit.h"
+#include "kernels.h"
+#if defined(XGBOOST_USE_EXTERNAL_KERNELS)
+#include "./../../extern_kernels.h"
+#endif
 
+class XGBoostInternalKernels: public Kernel<XGBoostInternalKernels> {
+public:
+    template<typename FPType, bool do_prefetch, typename BinIdxType>
+    void X_SeqBuildHist(const size_t size, const size_t n_features, const size_t* rid, const float* pgh,
+                             const BinIdxType* gradient_index, const uint32_t* offsets,
+                             FPType* hist_data);
+};
 namespace xgboost {
 namespace common {
+
+
 /*!
  * \brief A single row in global histogram index.
  *  Directly represent the global index in the histogram entry.
@@ -322,6 +335,11 @@ struct GHistIndexMatrix {
   HistogramCuts cut;
   DMatrix* p_fmat;
   size_t max_num_bins;
+#if defined(XGBOOST_USE_EXTERNAL_KERNELS)
+  Kernel<XGBoostExternalKernels>* kernel;
+#else
+  Kernel<XGBoostInternalKernels>* kernel;
+#endif
   // Create a global histogram matrix, given cut
   void Init(DMatrix* p_fmat, int max_num_bins);
 

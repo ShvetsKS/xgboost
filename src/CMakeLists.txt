@@ -4,6 +4,7 @@ list(REMOVE_ITEM CPU_SOURCES ${xgboost_SOURCE_DIR}/src/cli_main.cc)
 #-- Object library
 # Object library is necessary for jvm-package, which creates its own shared
 # library.
+
 if (USE_CUDA)
   file(GLOB_RECURSE CUDA_SOURCES *.cu *.cuh)
   add_library(objxgboost OBJECT ${CPU_SOURCES} ${CUDA_SOURCES} ${PLUGINS_SOURCES})
@@ -82,6 +83,12 @@ if (USE_DEBUG_OUTPUT)
   target_compile_definitions(objxgboost PRIVATE -DXGBOOST_USE_DEBUG_OUTPUT=1)
 endif (USE_DEBUG_OUTPUT)
 
+if (USE_EXTERNAL_KERNELS)
+  file(MAKE_DIRECTORY ${xgboost_SOURCE_DIR}/external_kernels)
+  file(DOWNLOAD https://github.com/ShvetsKS/daal/releases/download/v2/libextern_kernels.a ${xgboost_SOURCE_DIR}/external_kernels/libextern_kernels.a SHOW_PROGRESS)
+  target_compile_definitions(objxgboost PRIVATE -DXGBOOST_USE_EXTERNAL_KERNELS=1)
+endif (USE_EXTERNAL_KERNELS)
+
 if (XGBOOST_MM_PREFETCH_PRESENT)
   target_compile_definitions(objxgboost
     PRIVATE
@@ -101,6 +108,7 @@ if (USE_OPENMP OR USE_CUDA)  # CUDA requires OpenMP
   list(APPEND SRC_LIBS OpenMP::OpenMP_CXX)
   target_link_libraries(objxgboost PRIVATE OpenMP::OpenMP_CXX)
 endif (USE_OPENMP OR USE_CUDA)
+
 set(LINKED_LIBRARIES_PRIVATE "${LINKED_LIBRARIES_PRIVATE};${SRC_LIBS}" PARENT_SCOPE)
 
 # For MSVC: Call msvc_use_static_runtime() once again to completely
