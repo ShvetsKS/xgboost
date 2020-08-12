@@ -26,7 +26,11 @@
 #include "./sparse_page_source.h"
 #include "./sparse_page_dmatrix.h"
 #endif  // DMLC_ENABLE_STD_THREAD
-
+uint64_t get_time() {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return t.tv_sec * 1000000000 + t.tv_nsec;
+}
 namespace dmlc {
 DMLC_REGISTRY_ENABLE(::xgboost::data::SparsePageFormatReg<::xgboost::SparsePage>);
 DMLC_REGISTRY_ENABLE(::xgboost::data::SparsePageFormatReg<::xgboost::CSCPage>);
@@ -872,15 +876,22 @@ uint64_t SparsePage::Push(const AdapterBatchT& batch, float missing, int nthread
   const size_t thread_size = batch_size/nthread;
   const size_t tail_size = batch_size - thread_size*nthread;
   size_t thread_displace = 0;
+  uint64_t InitBudged_t1 = get_time();
   InitBudged(batch, &builder, expected_rows,
              thread_size, nthread, tail_size, &thread_displace);
+  uint64_t InitBudged_t2 = get_time();
+  std::cout << "InitBudged time: " << (double)(InitBudged_t2 - InitBudged_t1)/(double)1000000000 << std::endl;
   uint64_t max_columns = 0;
   if (batch_size == 0) {
     omp_set_num_threads(nthread_original);
     return max_columns;
   }
   std::vector<std::vector<uint64_t>> max_columns_vector(nthread);
+  
 
+
+
+  uint64_t t1 = get_time();
   // First-pass over the batch counting valid elements
 #pragma omp parallel num_threads(nthread)
   {
@@ -890,19 +901,26 @@ uint64_t SparsePage::Push(const AdapterBatchT& batch, float missing, int nthread
     max_columns_vector[tid].resize(1, 0);
     uint64_t& max_columns_local = max_columns_vector[tid][0];
 
-    for (size_t i = begin; i < end; ++i) {
+    for (size_t i = 0; i < batch_size; ++i) {
       auto line = batch.GetLine(i);
-      for (auto j = 0ull; j < line.Size(); j++) {
+      const size_t line_size = line.Size();
+      for (auto j = 0ull; j < line_size; j++) {
         auto element = line.GetElement(j);
-        const size_t key = (element.row_idx - base_rowid) - tid*thread_displace;
-        CHECK_GE(key,  builder_base_row_offset);
-        max_columns_local =
-            std::max(max_columns_local, static_cast<uint64_t>(element.column_idx + 1));
+        const size_t tmp = element.row_idx - base_rowid;
+        if(tmp >= end) {
+         j = line_size;
+        }
+        if(tmp >= begin && tmp < end) {
+          const size_t key = tmp - tid*thread_displace;
+          CHECK_GE(key,  builder_base_row_offset);
+          max_columns_local =
+              std::max(max_columns_local, static_cast<uint64_t>(element.column_idx + 1));
 
-        if (!common::CheckNAN(element.value) && element.value != missing) {
-          // Adapter row index is absolute, here we want it relative to
-          // current page
-          builder.AddBudget(key, tid);
+          if (!common::CheckNAN(element.value) && element.value != missing) {
+            // Adapter row index is absolute, here we want it relative to
+            // current page
+            builder.AddBudget(key, tid);
+          }
         }
       }
     }
@@ -910,28 +928,43 @@ uint64_t SparsePage::Push(const AdapterBatchT& batch, float missing, int nthread
   for (const auto & max : max_columns_vector) {
     max_columns = std::max(max_columns, max[0]);
   }
+  uint64_t t2 = get_time();
+  std::cout << "time: " << (double)(t2 - t1)/(double)1000000000 << std::endl;
 
+  t1 = get_time();
   InitStorage(batch, &builder, expected_rows);
+  t2 = get_time();
+  std::cout << "InitStorage time: " << (double)(t2 - t1)/(double)1000000000 << std::endl;
 
   // Second pass over batch, placing elements in correct position
+  t1 = get_time();
 
 #pragma omp parallel num_threads(nthread)
   {
     int tid = omp_get_thread_num();
     size_t begin = tid*thread_size;
     size_t end = tid != (nthread-1) ? (tid+1)*thread_size : batch_size;
-    for (size_t i = begin; i < end; ++i) {
+    for (size_t i = 0; i < batch_size; ++i) {
       auto line = batch.GetLine(i);
-      for (auto j = 0ull; j < line.Size(); j++) {
+      const size_t line_size = line.Size();
+      for (auto j = 0ull; j < line_size; j++) {
         auto element = line.GetElement(j);
-        const size_t key = (element.row_idx - base_rowid)- tid*thread_displace;
-        if (!common::CheckNAN(element.value) && element.value != missing) {
-          builder.Push(key, Entry(element.column_idx, element.value), tid);
+        const size_t tmp = element.row_idx - base_rowid;
+        if(tmp >= end) {
+         j = line_size;
+        }
+        if(tmp >= begin && tmp < end) {
+          const size_t key = tmp- tid*thread_displace;
+          if (!common::CheckNAN(element.value) && element.value != missing) {
+            builder.Push(key, Entry(element.column_idx, element.value), tid);
+          }
         }
       }
     }
   }
   omp_set_num_threads(nthread_original);
+  t2 = get_time();
+  std::cout << "Tail time: " << (double)(t2 - t1)/(double)1000000000 << std::endl;
 
   return max_columns;
 }

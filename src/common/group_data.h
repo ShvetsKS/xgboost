@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "xgboost/base.h"
+uint64_t get_time();
 
 namespace xgboost {
 namespace common {
@@ -57,8 +58,8 @@ class ParallelGroupBuilder {
   void InitBudget(std::size_t max_key, int nthread) {
     thread_rptr_.resize(nthread);
     for (std::size_t i = 0; i < thread_rptr_.size(); ++i) {
-      thread_rptr_[i].resize(max_key - std::min(base_row_offset_, max_key));
-      std::fill(thread_rptr_[i].begin(), thread_rptr_[i].end(), 0);
+      thread_rptr_[i].resize(max_key - std::min(base_row_offset_, max_key), 0);
+      //std::fill(thread_rptr_[i].begin(), thread_rptr_[i].end(), 0);
     }
   }
 
@@ -114,6 +115,7 @@ class ParallelGroupBuilder {
 
   /*! \brief step 3: initialize the necessary storage */
   inline void InitStorage() {
+    uint64_t t1 = get_time();
     // set rptr to correct size
     SizeType rptr_fill_value = rptr_.empty() ? 0 : rptr_.back();
     for (std::size_t tid = 0; tid < thread_rptr_.size(); ++tid) {
@@ -122,7 +124,11 @@ class ParallelGroupBuilder {
                      rptr_fill_value);  // key + 1
       }
     }
+    uint64_t t2 = get_time();
+    std::cout << "    memory allocation time: " << (double)(t2 - t1)/(double)1000000000 << std::endl;
+    std::cout << "    rptr_.size(): " << rptr_.size() << std::endl;
     // initialize rptr to be beginning of each segment
+    t1 = get_time();
     std::size_t count = 0;
     for (std::size_t i = base_row_offset_; i + 1 < rptr_.size(); ++i) {
       for (std::size_t tid = 0; tid < thread_rptr_.size(); ++tid) {
@@ -137,7 +143,13 @@ class ParallelGroupBuilder {
       }
       rptr_[i + 1] += count;  // pointer accumulated from all thread
     }
+    t2 = get_time();
+    std::cout << "    loop time: " << (double)(t2 - t1)/(double)1000000000 << std::endl;
+
+    t1 = get_time();
     data_.resize(rptr_.back());
+    t2 = get_time();
+    std::cout << "    data_.resize time: " << (double)(t2 - t1)/(double)1000000000 << std::endl;
   }
 
   /*!
