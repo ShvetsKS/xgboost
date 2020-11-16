@@ -335,11 +335,11 @@ struct GHistIndexMatrix {
   HistogramCuts cut;
   DMatrix* p_fmat;
   size_t max_num_bins;
-#if defined(XGBOOST_USE_EXTERNAL_KERNELS)
-  Kernel<XGBoostExternalKernels>* kernel;
-#else
+//#if defined(XGBOOST_USE_EXTERNAL_KERNELS)
+//  Kernel<XGBoostExternalKernels>* kernel;
+//#else
   Kernel<XGBoostInternalKernels>* kernel;
-#endif
+//#endif
   // Create a global histogram matrix, given cut
   void Init(DMatrix* p_fmat, int max_num_bins);
 

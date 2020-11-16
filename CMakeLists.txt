@@ -117,7 +117,10 @@ set_target_properties(dmlc PROPERTIES
   CXX_STANDARD_REQUIRED ON
   POSITION_INDEPENDENT_CODE ON)
 list(APPEND LINKED_LIBRARIES_PRIVATE dmlc)
-list(APPEND LINKED_LIBRARIES_PRIVATE "${xgboost_SOURCE_DIR}/external_kernels/libextern_kernels.a")
+#list(APPEND LINKED_LIBRARIES_PRIVATE "${xgboost_SOURCE_DIR}/external_kernels/libextern_kernels.a")
+#list(APPEND LINKED_LIBRARIES_PRIVATE "/opt/intel/vtune_profiler_2020.0.0.605294/lib64/libittnotify.a")
+list(APPEND LINKED_LIBRARIES_PRIVATE -ldl)
+
 # rabit
 set(RABIT_BUILD_DMLC OFF)
 set(DMLC_ROOT ${xgboost_SOURCE_DIR}/dmlc-core)

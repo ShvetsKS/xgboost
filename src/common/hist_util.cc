@@ -450,11 +450,11 @@ void DenseCuts::Init
 }
 
 void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
-#if defined(XGBOOST_USE_EXTERNAL_KERNELS)
-  kernel = new XGBoostExternalKernels;
-#else
+//#if defined(XGBOOST_USE_EXTERNAL_KERNELS)
+//  kernel = new XGBoostExternalKernels;
+//#else
   kernel = new XGBoostInternalKernels;
-#endif
+//#endif
   cut.Build(p_fmat, max_bins);
   max_num_bins = max_bins;
   const int32_t nthread = omp_get_max_threads();
@@ -1094,12 +1094,17 @@ void GHistBuilder::SubtractionTrick(GHistRow self, GHistRow sibling, GHistRow pa
 
 }  // namespace common
 }  // namespace xgboost
+#define UNR(IDX, J)                                                                                    \
+    const size_t offset##IDX = offsets64[IDX + 16*J] + ((size_t)(gr_index_local[IDX + 16*J])) * 16; \
+    asm("vmovapd (%0), %%xmm1;" : : "r" ( offset##IDX ) : /*"%xmm1"*/);                 \
+    asm("vaddpd %xmm2, %xmm1, %xmm3;");                                                             \
+    asm("vmovapd %%xmm3, (%0);" : : "r" ( offset##IDX ) : /*"%xmm3"*/);                 \
 
 template<typename FPType, bool do_prefetch, typename BinIdxType>
 void XGBoostInternalKernels::X_SeqBuildHist(const size_t size, const size_t n_features, const size_t* rid, const float* pgh,
                              const BinIdxType* gradient_index, const uint32_t* offsets,
                              FPType* hist_data) {
-  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+/*  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
                            // 2 FP values: gradient and hessian.
                            // So we need to multiply each row-index/bin-index by 2
                            // to work with gradient pairs as a singe row FP array
@@ -1118,6 +1123,7 @@ void XGBoostInternalKernels::X_SeqBuildHist(const size_t size, const size_t n_fe
       }
     }
     const BinIdxType* gr_index_local = gradient_index + icol_start;
+    //t = 0;
     for (size_t j = 0; j < n_features; ++j) {
       const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[j]) +
                                       offsets[j]);
@@ -1125,5 +1131,69 @@ void XGBoostInternalKernels::X_SeqBuildHist(const size_t size, const size_t n_fe
       hist_data[idx_bin]   += pgh[idx_gh];
       hist_data[idx_bin+1] += pgh[idx_gh+1];
     }
-  }
+  }*/
+  const size_t nb = n_features / 16;
+  const size_t tail_size = n_features - nb*16;
+
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+                           // 2 FP values: gradient and hessian.
+                           // So we need to multiply each row-index/bin-index by 2
+                           // to work with gradient pairs as a singe row FP array
+std::vector<uint64_t> offsets64_v(n_features);
+uint64_t* offsets64 = &(offsets64_v[0]);
+
+for(size_t i = 0; i < n_features; ++i) {
+  offsets64[i] = (uint64_t)hist_data + 16*(uint64_t)(offsets[i]);
+}
+  for (size_t i = 0; i < size; ++i) {
+    const size_t icol_start = rid[i] * n_features;
+    const size_t idx_gh = two * rid[i];
+
+
+    if (do_prefetch) {
+      const size_t icol_start_prefetch = rid[i +  xgboost::common::Prefetch::kPrefetchOffset] * n_features;
+
+      PREFETCH_READ_T0(pgh + two * rid[i +  xgboost::common::Prefetch::kPrefetchOffset]);
+      for (size_t j = icol_start_prefetch; j < icol_start_prefetch + n_features;
+           j +=  xgboost::common::Prefetch::GetPrefetchStep<BinIdxType>()) {
+        PREFETCH_READ_T0(gradient_index + j);
+      }
+    }
+
+     const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1], };
+     asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+
+     const BinIdxType* gr_index_local = gradient_index + icol_start;
+     for(size_t ib = 0; ib < nb; ++ib) {
+       UNR(0, ib);
+       UNR(1, ib);
+       UNR(2, ib);
+       UNR(3, ib);
+       UNR(4, ib);
+       UNR(5, ib);
+       UNR(6, ib);
+       UNR(7, ib);
+       UNR(8, ib);
+       UNR(9, ib);
+       UNR(10, ib);
+       UNR(11, ib);
+       UNR(12, ib);
+       UNR(13, ib);
+       UNR(14, ib);
+       UNR(15, ib);
+     }
+     //if(tail_size >= 8) {
+     //  UNR(0, nb);
+     //  UNR(1, nb);
+     //  UNR(2, nb);
+     //  UNR(3, nb);
+     //  UNR(4, nb);
+     //  UNR(5, nb);
+     //  UNR(6, nb);
+     //  UNR(7, nb);
+     //}
+     for(size_t j = n_features - tail_size;  j < n_features; ++j) {
+        UNR(j,0);
+     }
+   }
 }
