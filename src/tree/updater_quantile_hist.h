@@ -225,12 +225,12 @@ class QuantileHistMaker: public TreeUpdater {
                           const RowSetCollection::Elem row_indices,
                           const GHistIndexMatrix& gmat,
                           const GHistIndexBlockMatrix& gmatb,
-                          GHistRowT hist) {
+                          GHistRowT hist, const ColumnMatrix& column_matrix) {
       if (param_.enable_feature_grouping > 0) {
         hist_builder_.BuildBlockHist(gpair, row_indices, gmatb, hist);
       } else {
         hist_builder_.BuildHist(gpair, row_indices, gmat, hist,
-                                data_layout_ != DataLayout::kSparseData);
+                                data_layout_ != DataLayout::kSparseData, column_matrix);
       }
     }
 
@@ -340,14 +340,14 @@ class QuantileHistMaker: public TreeUpdater {
     void BuildLocalHistograms(const GHistIndexMatrix &gmat,
                               const GHistIndexBlockMatrix &gmatb,
                               RegTree *p_tree,
-                              const std::vector<GradientPair> &gpair_h);
+                              const std::vector<GradientPair> &gpair_h, const ColumnMatrix &column_matrix);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,
                         const GHistIndexMatrix &gmat,
                         const GHistIndexBlockMatrix &gmatb,
                         RegTree *p_tree,
-                        const std::vector<GradientPair> &gpair_h);
+                        const std::vector<GradientPair> &gpair_h, const ColumnMatrix &column_matrix);
 
     // Split nodes to 2 sets depending on amount of rows in each node
     // Histograms for small nodes will be built explicitly

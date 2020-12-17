@@ -292,7 +292,8 @@ template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
     ExpandEntry entry, const GHistIndexMatrix &gmat,
     const GHistIndexBlockMatrix &gmatb, RegTree *p_tree,
-    const std::vector<GradientPair> &gpair_h) {
+    const std::vector<GradientPair> &gpair_h,
+    const ColumnMatrix &column_matrix) {
   nodes_for_explicit_hist_build_.clear();
   nodes_for_subtraction_trick_.clear();
   nodes_for_explicit_hist_build_.push_back(entry);
@@ -306,7 +307,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
   int sync_count = 0;
 
   hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-  BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
+  BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, column_matrix);
   hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
 }
 
@@ -315,7 +316,8 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     const GHistIndexMatrix &gmat,
     const GHistIndexBlockMatrix &gmatb,
     RegTree *p_tree,
-    const std::vector<GradientPair> &gpair_h) {
+    const std::vector<GradientPair> &gpair_h,
+    const ColumnMatrix &column_matrix) {
   builder_monitor_.Start("BuildLocalHistograms");
 
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
@@ -343,7 +345,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
                                       start_of_row_set + r.end(),
                                       nid);
-    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set));
+    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set), column_matrix);
   });
 
   builder_monitor_.Stop("BuildLocalHistograms");
@@ -490,7 +492,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
     SplitSiblings(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
+    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, column_matrix);
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
 
@@ -523,7 +525,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
 
   ExpandEntry node(ExpandEntry::kRootNid, ExpandEntry::kEmptyNid,
       p_tree->GetDepth(0), 0.0f, timestamp++);
-  BuildHistogramsLossGuide(node, gmat, gmatb, p_tree, gpair_h);
+  BuildHistogramsLossGuide(node, gmat, gmatb, p_tree, gpair_h, column_matrix);
 
   this->InitNewNode(ExpandEntry::kRootNid, gmat, gpair_h, *p_fmat, *p_tree);
 
@@ -562,9 +564,9 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
                             0.0f, timestamp++);
 
       if (row_set_collection_[cleft].Size() < row_set_collection_[cright].Size()) {
-        BuildHistogramsLossGuide(left_node, gmat, gmatb, p_tree, gpair_h);
+        BuildHistogramsLossGuide(left_node, gmat, gmatb, p_tree, gpair_h, column_matrix);
       } else {
-        BuildHistogramsLossGuide(right_node, gmat, gmatb, p_tree, gpair_h);
+        BuildHistogramsLossGuide(right_node, gmat, gmatb, p_tree, gpair_h, column_matrix);
       }
 
       this->InitNewNode(cleft, gmat, gpair_h, *p_fmat, *p_tree);

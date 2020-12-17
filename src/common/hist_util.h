@@ -672,7 +672,7 @@ class GHistBuilder {
                  const RowSetCollection::Elem row_indices,
                  const GHistIndexMatrix& gmat,
                  GHistRowT hist,
-                 bool isDense);
+                 bool isDense, const ColumnMatrix& colunm_matrix);
   // same, with feature grouping
   void BuildBlockHist(const std::vector<GradientPair>& gpair,
                       const RowSetCollection::Elem row_indices,
