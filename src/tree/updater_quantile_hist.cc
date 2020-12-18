@@ -140,7 +140,7 @@ void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
+   // builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
 
     if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
       const size_t parent_id = (*p_tree)[entry.nid].Parent();
@@ -166,7 +166,7 @@ void DistributedHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT* builder
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
+  //  builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
     // Store posible parent node
     auto this_local = builder->hist_local_worker_[entry.nid];
     CopyHist(this_local, this_hist, r.begin(), r.end());
@@ -321,31 +321,38 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
   builder_monitor_.Start("BuildLocalHistograms");
 
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
-
+  const size_t n_features = gmat.p_fmat->Info().num_col_;
+  const size_t max_num_bins = gmat.max_num_bins;
   // create space of size (# rows in each node)
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
     const int32_t nid = nodes_for_explicit_hist_build_[node].nid;
-    return row_set_collection_[nid].Size();
-  }, 256);
+    return n_features;//row_set_collection_[nid].Size();
+  }, 1);
 
   std::vector<GHistRowT> target_hists(n_nodes);
   for (size_t i = 0; i < n_nodes; ++i) {
     const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
     target_hists[i] = hist_[nid];
   }
-
-  hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
+  const size_t nthreads = std::min((size_t)(this->nthread_), n_features);
+  hist_buffer_.Reset(nthreads, n_nodes, space, target_hists);
 
   // Parallel processing by nodes and data in each node
-  common::ParallelFor2d(space, this->nthread_, [&](size_t nid_in_set, common::Range1d r) {
+  common::ParallelFor2d(space, nthreads, [&](size_t nid_in_set, common::Range1d r) {
     const auto tid = static_cast<unsigned>(omp_get_thread_num());
     const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
 
     auto start_of_row_set = row_set_collection_[nid].begin;
-    auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
-                                      start_of_row_set + r.end(),
+    auto end_of_row_set = row_set_collection_[nid].end;
+    auto rid_set = RowSetCollection::Elem(start_of_row_set,
+                                      end_of_row_set,
                                       nid);
-    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set), column_matrix);
+    const ColumnsElem ce = ColumnsElem(r.begin(), r.end());
+    GHistRowT node_hist = hist_buffer_.GetInitializedHist(tid, nid_in_set);
+    uint32_t start_bins = gmat.cut.Ptrs()[r.begin()];
+    uint32_t end_bins = gmat.cut.Ptrs()[r.end()];
+    GHistRowT local_hist(node_hist.data() + start_bins, end_bins - start_bins);
+    BuildHist(gpair_h, rid_set, gmat, gmatb, local_hist /*  hist_buffer_.GetInitializedHist(tid, nid_in_set) */, column_matrix, ce);
   });
 
   builder_monitor_.Stop("BuildLocalHistograms");

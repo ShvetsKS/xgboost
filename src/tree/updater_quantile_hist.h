@@ -73,6 +73,7 @@ using xgboost::common::GHistIndexBlockMatrix;
 using xgboost::common::GHistIndexRow;
 using xgboost::common::HistCollection;
 using xgboost::common::RowSetCollection;
+using xgboost::common::ColumnsElem;
 using xgboost::common::GHistRow;
 using xgboost::common::GHistBuilder;
 using xgboost::common::ColumnMatrix;
@@ -225,12 +226,12 @@ class QuantileHistMaker: public TreeUpdater {
                           const RowSetCollection::Elem row_indices,
                           const GHistIndexMatrix& gmat,
                           const GHistIndexBlockMatrix& gmatb,
-                          GHistRowT hist, const ColumnMatrix& column_matrix) {
+                          GHistRowT hist, const ColumnMatrix& column_matrix, const ColumnsElem ce) {
       if (param_.enable_feature_grouping > 0) {
         hist_builder_.BuildBlockHist(gpair, row_indices, gmatb, hist);
       } else {
         hist_builder_.BuildHist(gpair, row_indices, gmat, hist,
-                                data_layout_ != DataLayout::kSparseData, column_matrix);
+                                data_layout_ != DataLayout::kSparseData, column_matrix, ce);
       }
     }
 

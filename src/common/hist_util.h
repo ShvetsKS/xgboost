@@ -512,8 +512,8 @@ class ParallelGHistBuilder {
     nthreads_ = nthreads;
 
     MatchThreadsToNodes(space);
-    AllocateAdditionalHistograms();
-    MatchNodeNidPairToHist();
+    //AllocateAdditionalHistograms();
+    //MatchNodeNidPairToHist();
 
     hist_was_used_.resize(nthreads * nodes_);
     std::fill(hist_was_used_.begin(), hist_was_used_.end(), static_cast<int>(false));
@@ -524,7 +524,7 @@ class ParallelGHistBuilder {
     CHECK_LT(nid, nodes_);
     CHECK_LT(tid, nthreads_);
 
-    int idx = tid_nid_to_hist_.at({tid, nid});
+/*     int idx = tid_nid_to_hist_.at({tid, nid});
     if (idx >= 0) {
       hist_buffer_.AllocateData(idx);
     }
@@ -533,8 +533,8 @@ class ParallelGHistBuilder {
     if (!hist_was_used_[tid * nodes_ + nid]) {
       InitilizeHistByZeroes(hist, 0, hist.size());
       hist_was_used_[tid * nodes_ + nid] = static_cast<int>(true);
-    }
-
+    } */
+    GHistRowT hist = targeted_hists_[nid];
     return hist;
   }
 
@@ -672,7 +672,7 @@ class GHistBuilder {
                  const RowSetCollection::Elem row_indices,
                  const GHistIndexMatrix& gmat,
                  GHistRowT hist,
-                 bool isDense, const ColumnMatrix& colunm_matrix);
+                 bool isDense, const ColumnMatrix& colunm_matrix, const ColumnsElem ce);
   // same, with feature grouping
   void BuildBlockHist(const std::vector<GradientPair>& gpair,
                       const RowSetCollection::Elem row_indices,

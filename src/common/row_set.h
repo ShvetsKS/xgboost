@@ -16,6 +16,22 @@
 namespace xgboost {
 namespace common {
 
+
+struct ColumnsElem {
+public:
+  const size_t begin{0};
+  const size_t end{0};
+  ColumnsElem()
+       = default;
+  ColumnsElem(const size_t begin,
+       const size_t end)
+      : begin(begin), end(end) {}
+
+  inline size_t Size() const {
+    return end - begin;
+  }
+};
+
 /*! \brief collection of rowset */
 class RowSetCollection {
  public:
