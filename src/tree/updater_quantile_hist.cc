@@ -334,7 +334,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
     target_hists[i] = hist_[nid];
   }
-  const size_t nthreads = std::min((size_t)(this->nthread_), n_features);
+  const size_t nthreads = std::min((size_t)(this->nthread_), n_features*n_nodes);
   hist_buffer_.Reset(nthreads, n_nodes, space, target_hists);
 
   // Parallel processing by nodes and data in each node
