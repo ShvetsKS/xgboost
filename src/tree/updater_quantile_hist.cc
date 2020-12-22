@@ -149,6 +149,14 @@ void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
       SubtractionHist(sibling_hist, parent_hist, this_hist, r.begin(), r.end());
     }
   });
+
+std::cout << "\nbuilder->nodes_for_explicit_hist_build_.size(): " << builder->nodes_for_explicit_hist_build_.size() << "\n";
+    const auto& entry = builder->nodes_for_explicit_hist_build_[0];
+    auto this_hist = builder->hist_[entry.nid];
+    for(size_t i = 0; i < this_hist.size(); ++i) {
+      std::cout << this_hist.data()[i] << "   ";
+    }
+    std::cout << "\n";
   builder->builder_monitor_.Stop("SyncHistograms");
 }
 
@@ -318,8 +326,46 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     const std::vector<GradientPair> &gpair_h) {
   builder_monitor_.Start("BuildLocalHistograms");
 
-  const size_t n_nodes = nodes_for_explicit_hist_build_.size();
 
+  const size_t n_nodes = nodes_for_explicit_hist_build_.size();
+  bool all_dense = data_layout_ != DataLayout::kSparseData;
+
+if (all_dense) {
+  const size_t n_features = gmat.p_fmat->Info().num_col_;
+
+  //std::cout << "\nQQEPTA\n";
+  // create space of size (# rows in each node)
+  common::BlockedSpace2d space(n_nodes, [&](size_t node) {
+    const int32_t nid = nodes_for_explicit_hist_build_[node].nid;
+    return n_features;//row_set_collection_[nid].Size();
+  }, 1);
+
+  std::vector<GHistRowT> target_hists(n_nodes);
+  for (size_t i = 0; i < n_nodes; ++i) {
+    const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
+    target_hists[i] = hist_[nid];
+  }
+  const size_t nthreads = std::min((size_t)(this->nthread_), n_features*n_nodes);
+ // hist_buffer_.Reset(nthreads, n_nodes, space, target_hists);
+
+  // Parallel processing by nodes and data in each node
+  common::ParallelFor2d(space, nthreads, [&](size_t nid_in_set, common::Range1d r) {
+    const auto tid = static_cast<unsigned>(omp_get_thread_num());
+    const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
+
+    auto start_of_row_set = row_set_collection_[nid].begin;
+    auto end_of_row_set = row_set_collection_[nid].end;
+    auto rid_set = RowSetCollection::Elem(start_of_row_set,
+                                      end_of_row_set,
+                                      nid);
+   // const ColumnsElem ce = ColumnsElem(r.begin(), r.end());
+    GHistRowT node_hist = target_hists[nid_in_set];//hist_buffer_.GetInitializedHist(tid, nid_in_set);
+    uint32_t start_bins = gmat.cut.Ptrs()[r.begin()];
+    uint32_t end_bins = gmat.cut.Ptrs()[r.end()];
+    GHistRowT local_hist(node_hist.data() + start_bins, end_bins - start_bins);
+    BuildHist(gpair_h, rid_set, gmat, gmatb, local_hist /*  hist_buffer_.GetInitializedHist(tid, nid_in_set) */ );//, column_matrix, ce);
+  });
+} else {
   // create space of size (# rows in each node)
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
     const int32_t nid = nodes_for_explicit_hist_build_[node].nid;
@@ -343,9 +389,11 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
                                       start_of_row_set + r.end(),
                                       nid);
+    //const ColumnsElem ce = ColumnsElem(0, 0);
     BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set));
   });
 
+}
   builder_monitor_.Stop("BuildLocalHistograms");
 }
 
