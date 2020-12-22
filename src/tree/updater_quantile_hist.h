@@ -77,6 +77,7 @@ using xgboost::common::GHistRow;
 using xgboost::common::GHistBuilder;
 using xgboost::common::ColumnMatrix;
 using xgboost::common::Column;
+using xgboost::common::ColumnsElem;
 
 template <typename GradientSumT>
 class HistSynchronizer;
@@ -225,12 +226,12 @@ class QuantileHistMaker: public TreeUpdater {
                           const RowSetCollection::Elem row_indices,
                           const GHistIndexMatrix& gmat,
                           const GHistIndexBlockMatrix& gmatb,
-                          GHistRowT hist) {
+                          GHistRowT hist, const ColumnMatrix& column_matrix, const ColumnsElem ce) {
       if (param_.enable_feature_grouping > 0) {
         hist_builder_.BuildBlockHist(gpair, row_indices, gmatb, hist);
       } else {
         hist_builder_.BuildHist(gpair, row_indices, gmat, hist,
-                                data_layout_ != DataLayout::kSparseData);
+                                data_layout_ != DataLayout::kSparseData, column_matrix, ce);
       }
     }
 
@@ -340,14 +341,14 @@ class QuantileHistMaker: public TreeUpdater {
     void BuildLocalHistograms(const GHistIndexMatrix &gmat,
                               const GHistIndexBlockMatrix &gmatb,
                               RegTree *p_tree,
-                              const std::vector<GradientPair> &gpair_h);
+                              const std::vector<GradientPair> &gpair_h, const ColumnMatrix& column_matrix);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,
                         const GHistIndexMatrix &gmat,
                         const GHistIndexBlockMatrix &gmatb,
                         RegTree *p_tree,
-                        const std::vector<GradientPair> &gpair_h);
+                        const std::vector<GradientPair> &gpair_h, const ColumnMatrix& column_matrix);
 
     // Split nodes to 2 sets depending on amount of rows in each node
     // Histograms for small nodes will be built explicitly
@@ -479,7 +480,7 @@ class HistSynchronizer {
   virtual void SyncHistograms(BuilderT* builder,
                               int starting_index,
                               int sync_count,
-                              RegTree *p_tree) = 0;
+                              RegTree *p_tree, bool all_dense) = 0;
   virtual ~HistSynchronizer() = default;
 };
 
@@ -490,7 +491,7 @@ class BatchHistSynchronizer: public HistSynchronizer<GradientSumT> {
   void SyncHistograms(BuilderT* builder,
                       int starting_index,
                       int sync_count,
-                      RegTree *p_tree) override;
+                      RegTree *p_tree, bool all_dense) override;
 };
 
 template <typename GradientSumT>
@@ -500,7 +501,7 @@ class DistributedHistSynchronizer: public HistSynchronizer<GradientSumT> {
   using ExpandEntryT = typename BuilderT::ExpandEntry;
 
   void SyncHistograms(BuilderT* builder, int starting_index,
-                      int sync_count, RegTree *p_tree) override;
+                      int sync_count, RegTree *p_tree, bool all_dense) override;
 
   void ParallelSubtractionHist(BuilderT* builder,
                                const common::BlockedSpace2d& space,
