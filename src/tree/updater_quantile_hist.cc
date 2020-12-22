@@ -362,10 +362,14 @@ if (all_dense) {
                                       end_of_row_set,
                                       nid);
     const ColumnsElem ce = ColumnsElem(r.begin(), r.end());
-    GHistRowT node_hist = target_hists[nid_in_set];//hist_buffer_.GetInitializedHist(tid, nid_in_set);
+    GHistRowT node_hist = hist_[nid];//hist_buffer_.GetInitializedHist(tid, nid_in_set);
     uint32_t start_bins = gmat.cut.Ptrs()[r.begin()];
     uint32_t end_bins = gmat.cut.Ptrs()[r.end()];
     GHistRowT local_hist(node_hist.data() + start_bins, end_bins - start_bins);
+    const auto local_hist_data = local_hist.data();
+    for (size_t i = 0; i < local_hist.size(); ++i) {
+      local_hist_data[i] = {0,0};
+    }
     BuildHist(gpair_h, rid_set, gmat, gmatb, local_hist, column_matrix, ce);
   });
 } else {
