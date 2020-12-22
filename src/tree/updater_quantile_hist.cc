@@ -151,6 +151,14 @@ void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
       SubtractionHist(sibling_hist, parent_hist, this_hist, r.begin(), r.end());
     }
   });
+/* 
+std::cout << "\nbuilder->nodes_for_explicit_hist_build_.size(): " << builder->nodes_for_explicit_hist_build_.size() << "\n";
+    const auto& entry = builder->nodes_for_explicit_hist_build_[0];
+    auto this_hist = builder->hist_[entry.nid];
+    for(size_t i = 0; i < this_hist.size(); ++i) {
+      std::cout << this_hist.data()[i] << "   ";
+    }
+    std::cout << "\n"; */
   builder->builder_monitor_.Stop("SyncHistograms");
 }
 
@@ -330,6 +338,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
   bool all_dense = data_layout_ != DataLayout::kSparseData;
 
 if (all_dense) {
+//std::cout << "\nQQEPTA\n";
   // create space of size (# rows in each node)
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
     const int32_t nid = nodes_for_explicit_hist_build_[node].nid;

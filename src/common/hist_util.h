@@ -534,7 +534,7 @@ class ParallelGHistBuilder {
       InitilizeHistByZeroes(hist, 0, hist.size());
       hist_was_used_[tid * nodes_ + nid] = static_cast<int>(true);
     }
-    //GHistRowT hist = targeted_hists_[nid];
+
     return hist;
   }
 
