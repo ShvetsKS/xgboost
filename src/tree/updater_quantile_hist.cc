@@ -336,13 +336,12 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
 if (all_dense) {
   const size_t n_features = gmat.p_fmat->Info().num_col_;
 
-  //std::cout << "\nQQEPTA\n";
   // create space of size (# rows in each node)
+  const size_t grain_size = std::max((size_t)(n_features / this->nthread_), (size_t)1);
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
     const int32_t nid = nodes_for_explicit_hist_build_[node].nid;
     return n_features;//row_set_collection_[nid].Size();
-  }, 1);
-
+  }, grain_size);
   std::vector<GHistRowT> target_hists(n_nodes);
   for (size_t i = 0; i < n_nodes; ++i) {
     const int32_t nid = nodes_for_explicit_hist_build_[i].nid;

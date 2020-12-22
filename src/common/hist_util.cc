@@ -601,7 +601,7 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                            // to work with gradient pairs as a singe row FP array
   for(size_t cid = ce.begin; cid < ce.end; ++cid) {
     const BinIdxType* gr_index_local = column_matrix.GetColumn<BinIdxType>(cid)->GetFeatureBinIdxPtr().data();
-    FPType* hist_data_local = hist_data + (offsets[cid] - offsets[ce.begin]);
+    FPType* hist_data_local = hist_data + two*(offsets[cid] - offsets[ce.begin]);
     for (size_t i = 0; i < size; ++i) {
       const size_t row_id = rid[i];
       const size_t idx_gh = two * row_id;
