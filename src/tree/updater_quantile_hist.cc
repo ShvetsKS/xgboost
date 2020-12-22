@@ -332,8 +332,8 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
 
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
   bool all_dense = data_layout_ != DataLayout::kSparseData;
-
-if (all_dense) {
+//std::cout << "\ngmat.index.Size():" << gmat.index.Size() << "\n";
+if (all_dense && gmat.index.Size() != 0) {
   const size_t n_features = gmat.p_fmat->Info().num_col_;
 
   // create space of size (# rows in each node)
