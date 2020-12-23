@@ -315,8 +315,11 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     const GHistIndexMatrix &gmat,
     const GHistIndexBlockMatrix &gmatb,
     RegTree *p_tree,
-    const std::vector<GradientPair> &gpair_h) {
-  builder_monitor_.Start("BuildLocalHistograms");
+    const std::vector<GradientPair> &gpair_h, int depth) {
+  std::string timer_name("BuildLocalHistograms_depth:");
+  timer_name += std::to_string(depth);
+  builder_monitor_.Start(timer_name.c_str());
+//  builder_monitor_.Start("BuildLocalHistograms");
 
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
 
@@ -346,7 +349,9 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set));
   });
 
-  builder_monitor_.Stop("BuildLocalHistograms");
+  //builder_monitor_.Stop("BuildLocalHistograms");
+  builder_monitor_.Stop(timer_name.c_str());
+
 }
 
 template<typename GradientSumT>
@@ -490,7 +495,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
     SplitSiblings(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
+    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth);
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
 
