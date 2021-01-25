@@ -540,7 +540,7 @@ struct Prefetch {
 constexpr size_t Prefetch::kNoPrefetchSize;
 
 
-/* template<typename FPType, bool do_prefetch, typename BinIdxType>
+template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                           const RowSetCollection::Elem row_indices,
                           const GHistIndexMatrix& gmat,
@@ -580,7 +580,7 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
     }
   }
 }
- */
+ 
 
 template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
@@ -659,8 +659,13 @@ void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
   if (isDense) {
     const size_t* row_ptr =  gmat.row_ptr.data();
     const size_t n_features = row_ptr[row_indices.begin[0]+1] - row_ptr[row_indices.begin[0]];
-    BuildHistDenseKernel<FPType, do_prefetch, BinIdxType>(gpair, row_indices,
-                                                       gmat, n_features, hist, column_matrix, ce);
+    if (ce.begin == 0 && ce.end == 0) {
+      BuildHistDenseKernel<FPType, do_prefetch, BinIdxType>(gpair, row_indices,
+                                                         gmat, n_features, hist);
+    } else {
+      BuildHistDenseKernel<FPType, do_prefetch, BinIdxType>(gpair, row_indices,
+                                                         gmat, n_features, hist, column_matrix, ce);
+    }
   } else {
     BuildHistSparseKernel<FPType, do_prefetch>(gpair, row_indices,
                                                         gmat, hist);

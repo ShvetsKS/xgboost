@@ -129,7 +129,7 @@ template <typename GradientSumT>
 void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
                                                          int,
                                                          int,
-                                                         RegTree *p_tree, bool all_dense) {
+                                                         RegTree *p_tree, bool all_dense, int depth) {
   builder->builder_monitor_.Start("SyncHistograms");
   const size_t nbins = builder->hist_builder_.GetNumBins();
   common::BlockedSpace2d space(builder->nodes_for_explicit_hist_build_.size(), [&](size_t) {
@@ -140,7 +140,7 @@ void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    if (!all_dense) {
+    if (!all_dense || depth >= 5) {
       builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
     }
     if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
@@ -165,7 +165,7 @@ template <typename GradientSumT>
 void DistributedHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT* builder,
                                                  int starting_index,
                                                  int sync_count,
-                                                 RegTree *p_tree, bool all_dense) {
+                                                 RegTree *p_tree, bool all_dense, int depth) {
   builder->builder_monitor_.Start("SyncHistograms");
   const size_t nbins = builder->hist_builder_.GetNumBins();
   common::BlockedSpace2d space(builder->nodes_for_explicit_hist_build_.size(), [&](size_t) {
@@ -175,7 +175,7 @@ void DistributedHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT* builder
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    if (!all_dense) {
+    if (!all_dense || depth >= 5) {
       builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
     }
     // Store posible parent node
@@ -318,7 +318,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
 
   hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
   BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, column_matrix);
-  hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree, data_layout_ != DataLayout::kSparseData);
+  hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree, data_layout_ != DataLayout::kSparseData, 5);
 }
 
 template<typename GradientSumT>
@@ -335,7 +335,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
   bool all_dense = data_layout_ != DataLayout::kSparseData;
 //std::cout << "\ngmat.index.Size():" << gmat.index.Size() << "\n";
-if (all_dense && gmat.index.Size() != 0) {
+if (all_dense && gmat.index.Size() != 0 && depth < 5) {
   const size_t n_features = gmat.p_fmat->Info().num_col_;
 
   // create space of size (# rows in each node)
@@ -544,7 +544,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
     BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, column_matrix, depth);
-    hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree, data_layout_ != DataLayout::kSparseData);
+    hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree, data_layout_ != DataLayout::kSparseData, depth);
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
 
     EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,

@@ -480,7 +480,7 @@ class HistSynchronizer {
   virtual void SyncHistograms(BuilderT* builder,
                               int starting_index,
                               int sync_count,
-                              RegTree *p_tree, bool all_dense) = 0;
+                              RegTree *p_tree, bool all_dense, int depth = 5) = 0;
   virtual ~HistSynchronizer() = default;
 };
 
@@ -491,7 +491,7 @@ class BatchHistSynchronizer: public HistSynchronizer<GradientSumT> {
   void SyncHistograms(BuilderT* builder,
                       int starting_index,
                       int sync_count,
-                      RegTree *p_tree, bool all_dense) override;
+                      RegTree *p_tree, bool all_dense, int depth = 5) override;
 };
 
 template <typename GradientSumT>
@@ -501,7 +501,7 @@ class DistributedHistSynchronizer: public HistSynchronizer<GradientSumT> {
   using ExpandEntryT = typename BuilderT::ExpandEntry;
 
   void SyncHistograms(BuilderT* builder, int starting_index,
-                      int sync_count, RegTree *p_tree, bool all_dense) override;
+                      int sync_count, RegTree *p_tree, bool all_dense, int depth = 5) override;
 
   void ParallelSubtractionHist(BuilderT* builder,
                                const common::BlockedSpace2d& space,
