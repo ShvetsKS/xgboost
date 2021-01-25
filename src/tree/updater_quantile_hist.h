@@ -347,7 +347,7 @@ class QuantileHistMaker: public TreeUpdater {
                         const GHistIndexMatrix &gmat,
                         const GHistIndexBlockMatrix &gmatb,
                         RegTree *p_tree,
-                        const std::vector<GradientPair> &gpair_h);
+                        const std::vector<GradientPair> &gpair_h, int depth = 0);
 
     // Split nodes to 2 sets depending on amount of rows in each node
     // Histograms for small nodes will be built explicitly

@@ -292,7 +292,7 @@ template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
     ExpandEntry entry, const GHistIndexMatrix &gmat,
     const GHistIndexBlockMatrix &gmatb, RegTree *p_tree,
-    const std::vector<GradientPair> &gpair_h) {
+    const std::vector<GradientPair> &gpair_h, int depth) {
   nodes_for_explicit_hist_build_.clear();
   nodes_for_subtraction_trick_.clear();
   nodes_for_explicit_hist_build_.push_back(entry);
@@ -306,7 +306,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
   int sync_count = 0;
 
   hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-  BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
+  BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth);
   hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
 }
 
@@ -528,7 +528,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
 
   ExpandEntry node(ExpandEntry::kRootNid, ExpandEntry::kEmptyNid,
       p_tree->GetDepth(0), 0.0f, timestamp++);
-  BuildHistogramsLossGuide(node, gmat, gmatb, p_tree, gpair_h);
+  BuildHistogramsLossGuide(node, gmat, gmatb, p_tree, gpair_h, 0);
 
   this->InitNewNode(ExpandEntry::kRootNid, gmat, gpair_h, *p_fmat, *p_tree);
 
@@ -567,9 +567,9 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
                             0.0f, timestamp++);
 
       if (row_set_collection_[cleft].Size() < row_set_collection_[cright].Size()) {
-        BuildHistogramsLossGuide(left_node, gmat, gmatb, p_tree, gpair_h);
+        BuildHistogramsLossGuide(left_node, gmat, gmatb, p_tree, gpair_h, p_tree->GetDepth(cleft));
       } else {
-        BuildHistogramsLossGuide(right_node, gmat, gmatb, p_tree, gpair_h);
+        BuildHistogramsLossGuide(right_node, gmat, gmatb, p_tree, gpair_h, p_tree->GetDepth(cright));
       }
 
       this->InitNewNode(cleft, gmat, gpair_h, *p_fmat, *p_tree);
