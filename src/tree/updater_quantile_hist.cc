@@ -366,9 +366,15 @@ if (all_dense && gmat.index.Size() != 0 && depth < 5) {
     GHistRowT node_hist = hist_[nid];//hist_buffer_.GetInitializedHist(tid, nid_in_set);
     uint32_t start_bins = gmat.cut.Ptrs()[r.begin()];
     uint32_t end_bins = gmat.cut.Ptrs()[r.end()];
-    GHistRowT local_hist(node_hist.data() + start_bins, end_bins - start_bins);
-    common::InitilizeHistByZeroes(local_hist, 0, local_hist.size());
+    std::vector<GradientSumT> localh(2*(end_bins - start_bins), 0);
+    GHistRowT local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>(localh.data()), end_bins - start_bins);
+    //common::InitilizeHistByZeroes(local_hist, 0, local_hist.size());
     BuildHist(gpair_h, rid_set, gmat, gmatb, local_hist, column_matrix, ce);
+    GradientSumT* pdst = reinterpret_cast<GradientSumT*>(node_hist.data() + start_bins);
+    for(size_t i = 0; i < localh.size(); ++i) {
+      pdst[i] = localh[i];
+    }
+
   });
 } else {
   // create space of size (# rows in each node)
