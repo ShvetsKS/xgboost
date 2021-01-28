@@ -556,6 +556,13 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                            // 2 FP values: gradient and hessian.
                            // So we need to multiply each row-index/bin-index by 2
                            // to work with gradient pairs as a singe row FP array
+const size_t feature_block_size = 32;
+const size_t n_feature_blocks = n_features / feature_block_size + !!(n_features % feature_block_size);
+
+
+size_t block_id = 0;
+/*  const size_t feature_offset = block_id * feature_block_size;
+  const size_t block_size = std::min(n_features - feature_offset, feature_block_size) + feature_offset;
 
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = rid[i] * n_features;
@@ -571,7 +578,7 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
       }
     }
     const BinIdxType* gr_index_local = gradient_index + icol_start;
-    for (size_t j = 0; j < n_features; ++j) {
+    for (size_t j = feature_offset; j < block_size; ++j) {
       const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[j]) +
                                       offsets[j]);
 
@@ -579,6 +586,35 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
       hist_data[idx_bin+1] += pgh[idx_gh+1];
     }
   }
+++block_id;*/
+
+for (; block_id < n_feature_blocks; ++block_id) {
+  const size_t feature_offset = block_id * feature_block_size;
+  const size_t block_size = std::min(n_features - feature_offset, feature_block_size);// + feature_offset;
+
+  for (size_t i = 0; i < size; ++i) {
+    const size_t icol_start = rid[i] * n_features;
+    const size_t idx_gh = two * rid[i];
+
+    if (do_prefetch) {
+      const size_t icol_start_prefetch = rid[i + Prefetch::kPrefetchOffset] * n_features + feature_offset;
+
+      PREFETCH_READ_T0(pgh + two * rid[i + Prefetch::kPrefetchOffset]);
+      for (size_t j = icol_start_prefetch; j < icol_start_prefetch + block_size;
+           j += Prefetch::GetPrefetchStep<BinIdxType>()) {
+        PREFETCH_READ_T0(gradient_index + j);
+      }
+    }
+    const BinIdxType* gr_index_local = gradient_index + icol_start;
+    for (size_t j = feature_offset; j < feature_offset + block_size; ++j) {
+      const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[j]) +
+                                      offsets[j]);
+
+      hist_data[idx_bin]   += pgh[idx_gh];
+      hist_data[idx_bin+1] += pgh[idx_gh+1];
+    }
+  }
+}
 }
 
 template<typename FPType, bool do_prefetch>
