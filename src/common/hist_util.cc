@@ -602,7 +602,7 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
   for(size_t cid = ce.begin; cid < ce.end; ++cid) {
     const BinIdxType* gr_index_local = column_matrix.GetColumn<BinIdxType>(cid)->GetFeatureBinIdxPtr().data();
     FPType* hist_data_local = hist_data + two*(offsets[cid] - offsets[ce.begin]);
-    if (use_row_idx) {
+    //if (use_row_idx) {
       for (size_t i = 0; i < size; ++i) {
         const size_t row_id = rid[i];
         const size_t idx_gh = /*two **/ row_id << 1;
@@ -617,16 +617,16 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
         hist_data_local[idx_bin]   += pgh[idx_gh];
         hist_data_local[idx_bin+1] += pgh[idx_gh+1];
       }
-    } else {
-      for (size_t i = 0; i < size; ++i) {
-//        const size_t row_id = use_row_idx ? rid[i] : i;
-        const size_t idx_gh = /*two **/ i << 1;
-
-        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[i]) << 1;
-        hist_data_local[idx_bin]   += pgh[idx_gh];
-        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
-      }      
-    }
+//    } else {
+//      for (size_t i = 0; i < size; ++i) {
+////        const size_t row_id = use_row_idx ? rid[i] : i;
+//        const size_t idx_gh = /*two **/ i << 1;
+//
+//        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[i]) << 1;
+//        hist_data_local[idx_bin]   += pgh[idx_gh];
+//        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+//      }      
+//    }
   }
 }
 
