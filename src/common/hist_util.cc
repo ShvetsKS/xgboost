@@ -621,6 +621,7 @@ template<typename FPType, bool do_prefetch>
 void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
                            const RowSetCollection::Elem row_indices,
                            const GHistIndexMatrix& gmat,
+                           const size_t n_features,
                            GHistRow<FPType> hist) {
   const size_t size = row_indices.Size();
   const size_t* rid = row_indices.begin;
@@ -632,28 +633,46 @@ void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
                            // 2 FP values: gradient and hessian.
                            // So we need to multiply each row-index/bin-index by 2
                            // to work with gradient pairs as a singe row FP array
+const size_t feature_block_size = 32;
+const size_t n_feature_blocks = n_features / feature_block_size + !!(n_features % feature_block_size);
+
+
+size_t block_id = 0;
+
+for (; block_id < n_feature_blocks; ++block_id) {
+  const size_t feature_offset = block_id * feature_block_size;
 
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = row_ptr[rid[i]];
     const size_t icol_end = row_ptr[rid[i]+1];
+    const size_t sparse_size = icol_end - icol_start;
+
+    const size_t block_size =  size_t(bool(sparse_size >= feature_offset)) * std::min(sparse_size - feature_offset, feature_block_size);// + feature_offset;
     const size_t idx_gh = two * rid[i];
 
     if (do_prefetch) {
       const size_t icol_start_prftch = row_ptr[rid[i+Prefetch::kPrefetchOffset]];
       const size_t icol_end_prefect = row_ptr[rid[i+Prefetch::kPrefetchOffset]+1];
+      const size_t prefetch_sparse_size = icol_end - icol_start;
+      const size_t block_size =  size_t(bool(prefetch_sparse_size >= feature_offset)) * std::min(prefetch_sparse_size - feature_offset, feature_block_size);// + feature_offset;
 
       PREFETCH_READ_T0(pgh + two * rid[i + Prefetch::kPrefetchOffset]);
-      for (size_t j = icol_start_prftch; j < icol_end_prefect;
+      const uint32_t* pref_gr_index_local = gradient_index + icol_start_prftch + feature_offset;
+      for (size_t j = 0; j < block_size;
         j+=Prefetch::GetPrefetchStep<uint32_t>()) {
-        PREFETCH_READ_T0(gradient_index + j);
+        PREFETCH_READ_T0(pref_gr_index_local + j);
       }
     }
-    for (size_t j = icol_start; j < icol_end; ++j) {
-      const uint32_t idx_bin = two * gradient_index[j];
+    const uint32_t* gr_index_local = gradient_index + icol_start + feature_offset;
+
+    for (size_t j = 0; j < block_size; ++j) {
+      const uint32_t idx_bin = two * gr_index_local[j];
       hist_data[idx_bin]   += pgh[idx_gh];
       hist_data[idx_bin+1] += pgh[idx_gh+1];
     }
   }
+}
+
 }
 
 
@@ -667,8 +686,9 @@ void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
     BuildHistDenseKernel<FPType, do_prefetch, BinIdxType>(gpair, row_indices,
                                                        gmat, n_features, hist);
   } else {
+    const size_t n_features = gmat.cut.Ptrs().size() - 1;
     BuildHistSparseKernel<FPType, do_prefetch>(gpair, row_indices,
-                                                        gmat, hist);
+                                                        gmat, n_features, hist);
   }
 }
 
