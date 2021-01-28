@@ -630,11 +630,11 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
   }
 }
 
-template<typename FPType, bool do_prefetch>
+template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
                            const RowSetCollection::Elem row_indices,
                            const GHistIndexMatrix& gmat,
-                           GHistRow<FPType> hist) {
+                           GHistRow<FPType> hist, const ColumnMatrix& column_matrix, const ColumnsElem ce) {
   const size_t size = row_indices.Size();
   const size_t* rid = row_indices.begin;
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
@@ -646,7 +646,7 @@ void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
                            // So we need to multiply each row-index/bin-index by 2
                            // to work with gradient pairs as a singe row FP array
 
-  for (size_t i = 0; i < size; ++i) {
+/*  for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = row_ptr[rid[i]];
     const size_t icol_end = row_ptr[rid[i]+1];
     const size_t idx_gh = two * rid[i];
@@ -666,9 +666,60 @@ void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
       hist_data[idx_bin]   += pgh[idx_gh];
       hist_data[idx_bin+1] += pgh[idx_gh+1];
     }
+  }*/
+const uint32_t* offsets = gmat.cut.Ptrs().data();
+  for(size_t cid = ce.begin; cid < ce.end; ++cid) {
+    FPType* hist_data_local = hist_data + two*(offsets[cid] - offsets[ce.begin]);
+
+   // CHECK_EQ(column_matrix.GetColumn<uint8_t>(cid)->GetType(), xgboost::common::kSparseColumn);
+  if (column_matrix.GetColumn<uint8_t>(cid)->GetType() == xgboost::common::kSparseColumn) {
+    const SparseColumn<uint8_t>* sparse_column = dynamic_cast<const SparseColumn<uint8_t>*>(column_matrix.GetColumn<uint8_t>(cid).get());
+    if (sparse_column == nullptr) {std::cout << "\nepta!\n";}
+    const uint8_t* gr_index_local = sparse_column->GetFeatureBinIdxPtr().data();
+    const size_t* row_ptrs = sparse_column->GetRowData();
+    const size_t sparse_column_size = sparse_column->Size();
+    size_t counter = 0;
+    for (size_t i = 0; i < size; ++i) {
+      while (row_ptrs[counter] != rid[i] && counter < sparse_column_size && i < size) {
+/*        std::cout << "counter: " << counter << "\n";
+        std::cout << row_ptrs[counter] << "   " << rid[i] << "\n";*/
+        if (row_ptrs[counter] < rid[i]) {
+          ++counter;
+        }
+        if (rid[i] < row_ptrs[counter]) {
+          ++i;
+        }
+      }
+      if (counter >= sparse_column_size && i >= size) { break;}
+      const size_t row_id = rid[i];
+      const size_t idx_gh = two * row_id;
+      const uint32_t idx_bin = two * static_cast<uint32_t>(gr_index_local[counter] /*- offsets[cid]*/);
+      hist_data_local[idx_bin]   += pgh[idx_gh];
+      hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+    }
+  } else {
+    const DenseColumn<uint8_t>* sparse_column = dynamic_cast<const DenseColumn<uint8_t>*>(column_matrix.GetColumn<uint8_t>(cid).get());
+    if (sparse_column == nullptr) {std::cout << "\nepta!\n";}
+    const uint8_t* gr_index_local = sparse_column->GetFeatureBinIdxPtr().data();
+    for (size_t i = 0; i < size; ++i) {
+      const size_t row_id = rid[i];
+      const size_t idx_gh = two * row_id;
+      const uint32_t idx_bin = two * static_cast<uint32_t>(gr_index_local[row_id] /*- offsets[cid]*/);
+      hist_data_local[idx_bin]   += pgh[idx_gh];
+      hist_data_local[idx_bin+1] += pgh[idx_gh+1];    
+  }
+    //FPType* hist_data_local = hist_data + two*(offsets[cid] - offsets[ce.begin]);
+    //if (use_row_idx) {
+/*      for (size_t i = 0; i < size; ++i) {
+        const size_t row_id = rid[i];
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      }*/
   }
 }
-
+}
 
 template<typename FPType, bool do_prefetch, typename BinIdxType, bool use_row_idx>
 void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
@@ -685,8 +736,8 @@ void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
                                                          gmat, n_features, hist, column_matrix, ce);
     }
   } else {
-    BuildHistSparseKernel<FPType, do_prefetch>(gpair, row_indices,
-                                                        gmat, hist);
+    BuildHistSparseKernel<FPType, do_prefetch, BinIdxType>(gpair, row_indices,
+                                                        gmat, hist, column_matrix, ce);
   }
 }
 
