@@ -731,8 +731,11 @@ const uint32_t* offsets = gmat.cut.Ptrs().data();
   } else {
     const DenseColumn<uint8_t>* dense_column = dynamic_cast<const DenseColumn<uint8_t>*>(column_matrix.GetColumn<uint8_t>(cid).get());
     if (dense_column == nullptr) {std::cout << "\nepta!\n";}
+  CHECK_EQ(dense_column->Size(),size);
     const uint8_t* gr_index_local = dense_column->GetFeatureBinIdxPtr().data();
     for (size_t i = 0; i < size; ++i) {
+      if (dense_column->IsMissing(i)) {continue;}
+
       const size_t row_id = rid[i];
       const size_t idx_gh = two * row_id;
       const uint32_t idx_bin = two * static_cast<uint32_t>(gr_index_local[row_id] /*- offsets[cid]*/);
