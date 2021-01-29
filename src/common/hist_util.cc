@@ -668,9 +668,10 @@ void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
     }
   }*/
 const uint32_t* offsets = gmat.cut.Ptrs().data();
+//std::cout << "ce.begin: " << ce.begin << " ce.end: " << ce.end << "\n";
   for(size_t cid = ce.begin; cid < ce.end; ++cid) {
     FPType* hist_data_local = hist_data + two*(offsets[cid] - offsets[ce.begin]);
-
+//std::cout << "cid: " << cid << "\n"; 
    // CHECK_EQ(column_matrix.GetColumn<uint8_t>(cid)->GetType(), xgboost::common::kSparseColumn);
   if (column_matrix.GetColumn<uint8_t>(cid)->GetType() == xgboost::common::kSparseColumn) {
     const SparseColumn<uint8_t>* sparse_column = dynamic_cast<const SparseColumn<uint8_t>*>(column_matrix.GetColumn<uint8_t>(cid).get());
@@ -678,9 +679,13 @@ const uint32_t* offsets = gmat.cut.Ptrs().data();
     const uint8_t* gr_index_local = sparse_column->GetFeatureBinIdxPtr().data();
     const size_t* row_ptrs = sparse_column->GetRowData();
     const size_t sparse_column_size = sparse_column->Size();
+ //   std::cout << "diff: " << size << "-" << sparse_column_size << "\n";
     size_t counter = 0;
     for (size_t i = 0; i < size; ++i) {
-      while (row_ptrs[counter] != rid[i] && counter < sparse_column_size && i < size) {
+      if(counter >= sparse_column_size) {
+        break;
+      }
+      while (row_ptrs[counter] != rid[i]) {
 /*        std::cout << "counter: " << counter << "\n";
         std::cout << row_ptrs[counter] << "   " << rid[i] << "\n";*/
         if (row_ptrs[counter] < rid[i]) {
@@ -689,18 +694,25 @@ const uint32_t* offsets = gmat.cut.Ptrs().data();
         if (rid[i] < row_ptrs[counter]) {
           ++i;
         }
+        if (counter >= sparse_column_size || i >= size) {
+          break;
+        }
       }
-      if (counter >= sparse_column_size && i >= size) { break;}
+      if (counter >= sparse_column_size || i >= size) { break;}
+//      std::cout << "    counter: " << counter << ", i" << i << "rows:" << row_ptrs[counter] << ":" << rid[i] << "\n";
       const size_t row_id = rid[i];
       const size_t idx_gh = two * row_id;
       const uint32_t idx_bin = two * static_cast<uint32_t>(gr_index_local[counter] /*- offsets[cid]*/);
       hist_data_local[idx_bin]   += pgh[idx_gh];
       hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      counter++;
     }
   } else {
     const DenseColumn<uint8_t>* sparse_column = dynamic_cast<const DenseColumn<uint8_t>*>(column_matrix.GetColumn<uint8_t>(cid).get());
     if (sparse_column == nullptr) {std::cout << "\nepta!\n";}
     const uint8_t* gr_index_local = sparse_column->GetFeatureBinIdxPtr().data();
+ //   std::cout << "Dense column!: " << sparse_column->Size()<< "\n";
+
     for (size_t i = 0; i < size; ++i) {
       const size_t row_id = rid[i];
       const size_t idx_gh = two * row_id;
