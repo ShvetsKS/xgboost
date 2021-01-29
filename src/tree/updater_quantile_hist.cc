@@ -338,7 +338,8 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
 //std::cout << "\ngmat.index.Size():" << gmat.index.Size() << "\n";
 if (/*all_dense &&*/ gmat.index.Size() != 0 && depth < 5) {
   const size_t n_features = gmat.p_fmat->Info().num_col_;
-
+//std::cout << "n_features: " << n_features << "\n";
+//std::cout << "gmat.cut.Ptrs()[n_features]: " << gmat.cut.Ptrs()[n_features] << "\n";
   // create space of size (# rows in each node)
   const size_t grain_size = std::max((size_t)(n_features / this->nthread_), (size_t)1);
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
