@@ -371,9 +371,13 @@ if (/*all_dense &&*/ gmat.index.Size() != 0 && depth < 1) {
     //common::InitilizeHistByZeroes(local_hist, 0, local_hist.size());
     BuildHist(gpair_h, rid_set, gmat, gmatb, local_hist, column_matrix, ce);
     GradientSumT* pdst = reinterpret_cast<GradientSumT*>(node_hist.data() + start_bins);
-    for(size_t i = 0; i < localh.size(); ++i) {
+    std::cout << "nid: " <<nid <<"\n";
+    for(size_t i = 0; i < localh.size(); i+=2) {
       pdst[i] = localh[i];
+      pdst[i+1] = localh[i+1];
+      std::cout << pdst[i] << ":" << pdst[i+1] << "  ";
     }
+    std::cout << "\n";
 
   });
 } else {
