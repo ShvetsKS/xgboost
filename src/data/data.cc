@@ -221,16 +221,16 @@ void MetaInfo::LoadBinary(dmlc::Stream *fi) {
   const uint64_t expected_num_field = kNumField;
   uint64_t num_field { 0 };
   CHECK(fi->Read(&num_field)) << "MetaInfo: invalid format";
-  size_t expected = 0;
+/*  size_t expected = 0;
   if (major == 1 && std::get<1>(version) < 2) {
     // feature names and types are added in 1.2
     expected = expected_num_field - 2;
   } else {
     expected = expected_num_field;
-  }
-  CHECK_GE(num_field, expected)
+  }*/
+  CHECK_GE(num_field, expected_num_field)
       << "MetaInfo: insufficient number of fields (expected at least "
-      << expected << " fields, but the binary file only contains " << num_field
+      << expected_num_field << " fields, but the binary file only contains " << num_field
       << "fields.)";
   if (num_field > expected_num_field) {
     LOG(WARNING) << "MetaInfo: the given binary file contains extra fields "
@@ -244,12 +244,13 @@ void MetaInfo::LoadBinary(dmlc::Stream *fi) {
   LoadVectorField(fi, u8"group_ptr", DataType::kUInt32, &group_ptr_);
   LoadVectorField(fi, u8"weights", DataType::kFloat32, &weights_);
   LoadVectorField(fi, u8"base_margin", DataType::kFloat32, &base_margin_);
-  LoadVectorField(fi, u8"labels_lower_bound", DataType::kFloat32, &labels_lower_bound_);
+  std::cout << "\nreaded!!!\n";
+/*  LoadVectorField(fi, u8"labels_lower_bound", DataType::kFloat32, &labels_lower_bound_);
   LoadVectorField(fi, u8"labels_upper_bound", DataType::kFloat32, &labels_upper_bound_);
-
-  LoadVectorField(fi, u8"feature_names", DataType::kStr, &feature_names);
-  LoadVectorField(fi, u8"feature_types", DataType::kStr, &feature_type_names);
-  LoadFeatureType(feature_type_names, &feature_types.HostVector());
+*/
+  //LoadVectorField(fi, u8"feature_names", DataType::kStr, &feature_names);
+  //LoadVectorField(fi, u8"feature_types", DataType::kStr, &feature_type_names);
+  //LoadFeatureType(feature_type_names, &feature_types.HostVector());
 }
 
 template <typename T>

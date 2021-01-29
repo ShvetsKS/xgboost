@@ -45,7 +45,7 @@ enum class FeatureType : uint8_t {
 class MetaInfo {
  public:
   /*! \brief number of data fields in MetaInfo */
-  static constexpr uint64_t kNumField = 11;
+  static constexpr uint64_t kNumField = 7;
 
   /*! \brief number of rows in the data */
   uint64_t num_row_{0};  // NOLINT
