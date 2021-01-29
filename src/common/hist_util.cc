@@ -634,12 +634,52 @@ template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
                            const RowSetCollection::Elem row_indices,
                            const GHistIndexMatrix& gmat,
+                           GHistRow<FPType> hist/*, const ColumnMatrix& column_matrix, const ColumnsElem ce*/) {
+  const size_t size = row_indices.Size();
+  const size_t* rid = row_indices.begin;
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const uint32_t* gradient_index = gmat.index.data<uint32_t>();
+  const size_t* row_ptr =  gmat.row_ptr.data();
+  FPType* hist_data = reinterpret_cast<FPType*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+                           // 2 FP values: gradient and hessian.
+                           // So we need to multiply each row-index/bin-index by 2
+                           // to work with gradient pairs as a singe row FP array
+
+  for (size_t i = 0; i < size; ++i) {
+    const size_t icol_start = row_ptr[rid[i]];
+    const size_t icol_end = row_ptr[rid[i]+1];
+    const size_t idx_gh = two * rid[i];
+
+    if (do_prefetch) {
+      const size_t icol_start_prftch = row_ptr[rid[i+Prefetch::kPrefetchOffset]];
+      const size_t icol_end_prefect = row_ptr[rid[i+Prefetch::kPrefetchOffset]+1];
+
+      PREFETCH_READ_T0(pgh + two * rid[i + Prefetch::kPrefetchOffset]);
+      for (size_t j = icol_start_prftch; j < icol_end_prefect;
+        j+=Prefetch::GetPrefetchStep<uint32_t>()) {
+        PREFETCH_READ_T0(gradient_index + j);
+      }
+    }
+    for (size_t j = icol_start; j < icol_end; ++j) {
+      const uint32_t idx_bin = two * gradient_index[j];
+      hist_data[idx_bin]   += pgh[idx_gh];
+      hist_data[idx_bin+1] += pgh[idx_gh+1];
+    }
+  }
+}
+
+template<typename FPType, bool do_prefetch, typename BinIdxType>
+void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
+                           const RowSetCollection::Elem row_indices,
+                           const GHistIndexMatrix& gmat,
                            GHistRow<FPType> hist, const ColumnMatrix& column_matrix, const ColumnsElem ce) {
   const size_t size = row_indices.Size();
   const size_t* rid = row_indices.begin;
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
   const uint32_t* gradient_index = gmat.index.data<uint32_t>();
   const size_t* row_ptr =  gmat.row_ptr.data();
+  const size_t full_size = gmat.row_ptr.size() - 1;
   FPType* hist_data = reinterpret_cast<FPType*>(hist.data());
   const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
                            // 2 FP values: gradient and hessian.
@@ -667,6 +707,45 @@ void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
       hist_data[idx_bin+1] += pgh[idx_gh+1];
     }
   }*/
+
+if (size == full_size) {
+const uint32_t* offsets = gmat.cut.Ptrs().data();
+//std::cout << "ce.begin: " << ce.begin << " ce.end: " << ce.end << "\n";
+  for(size_t cid = ce.begin; cid < ce.end; ++cid) {
+    FPType* hist_data_local = hist_data + two*(offsets[cid] - offsets[ce.begin]);
+//std::cout << "cid: " << cid << "\n"; 
+   // CHECK_EQ(column_matrix.GetColumn<uint8_t>(cid)->GetType(), xgboost::common::kSparseColumn);
+  if (column_matrix.GetColumn<uint8_t>(cid)->GetType() == xgboost::common::kSparseColumn) {
+    const SparseColumn<uint8_t>* sparse_column = dynamic_cast<const SparseColumn<uint8_t>*>(column_matrix.GetColumn<uint8_t>(cid).get());
+    if (sparse_column == nullptr) {std::cout << "\nepta!\n";}
+    const uint8_t* gr_index_local = sparse_column->GetFeatureBinIdxPtr().data();
+    const size_t* row_ptrs = sparse_column->GetRowData();
+    const size_t sparse_column_size = sparse_column->Size();
+    for (size_t i = 0; i < sparse_column_size; ++i) {
+      const size_t row_id = row_ptrs[i];
+      const size_t idx_gh = two * row_id;
+      const uint32_t idx_bin = two * static_cast<uint32_t>(gr_index_local[i] /*- offsets[cid]*/);
+      hist_data_local[idx_bin]   += pgh[idx_gh];
+      hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+    }
+  } else {
+    const DenseColumn<uint8_t>* dense_column = dynamic_cast<const DenseColumn<uint8_t>*>(column_matrix.GetColumn<uint8_t>(cid).get());
+    if (dense_column == nullptr) {std::cout << "\nepta!\n";}
+    const uint8_t* gr_index_local = dense_column->GetFeatureBinIdxPtr().data();
+    for (size_t i = 0; i < size; ++i) {
+      const size_t row_id = rid[i];
+      const size_t idx_gh = two * row_id;
+      const uint32_t idx_bin = two * static_cast<uint32_t>(gr_index_local[row_id] /*- offsets[cid]*/);
+      hist_data_local[idx_bin]   += pgh[idx_gh];
+      hist_data_local[idx_bin+1] += pgh[idx_gh+1];    
+    }
+
+  }
+}
+
+} else {
+  CHECK_EQ(1,0);
+std::cout << "\nSHOULD NOT REACH THIS BRANCH!!!!\n";
 const uint32_t* offsets = gmat.cut.Ptrs().data();
 //std::cout << "ce.begin: " << ce.begin << " ce.end: " << ce.end << "\n";
   for(size_t cid = ce.begin; cid < ce.end; ++cid) {
@@ -719,17 +798,11 @@ const uint32_t* offsets = gmat.cut.Ptrs().data();
       const uint32_t idx_bin = two * static_cast<uint32_t>(gr_index_local[row_id] /*- offsets[cid]*/);
       hist_data_local[idx_bin]   += pgh[idx_gh];
       hist_data_local[idx_bin+1] += pgh[idx_gh+1];    
+    }
+
   }
-    //FPType* hist_data_local = hist_data + two*(offsets[cid] - offsets[ce.begin]);
-    //if (use_row_idx) {
-/*      for (size_t i = 0; i < size; ++i) {
-        const size_t row_id = rid[i];
-        const size_t idx_gh = row_id << 1;
-        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
-        hist_data_local[idx_bin]   += pgh[idx_gh];
-        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
-      }*/
-  }
+}
+
 }
 }
 
@@ -748,8 +821,13 @@ void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
                                                          gmat, n_features, hist, column_matrix, ce);
     }
   } else {
+    if (ce.begin == 0 && ce.end == 0) {
+    BuildHistSparseKernel<FPType, do_prefetch, BinIdxType>(gpair, row_indices,
+                                                        gmat, hist);
+  } else {
     BuildHistSparseKernel<FPType, do_prefetch, BinIdxType>(gpair, row_indices,
                                                         gmat, hist, column_matrix, ce);
+  }
   }
 }
 
