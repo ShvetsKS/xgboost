@@ -734,9 +734,9 @@ const uint32_t* offsets = gmat.cut.Ptrs().data();
   CHECK_EQ(dense_column->Size(),size);
     const uint8_t* gr_index_local = dense_column->GetFeatureBinIdxPtr().data();
     for (size_t i = 0; i < size; ++i) {
-      if (dense_column->IsMissing(i)) {continue;}
 
       const size_t row_id = rid[i];
+      if (dense_column->IsMissing(row_id)) {continue;}
       const size_t idx_gh = two * row_id;
       const uint32_t idx_bin = two * static_cast<uint32_t>(gr_index_local[row_id] /*- offsets[cid]*/);
       hist_data_local[idx_bin]   += pgh[idx_gh];
@@ -747,9 +747,9 @@ const uint32_t* offsets = gmat.cut.Ptrs().data();
 }
 
 } else {
-  CHECK_EQ(1,0);
+/*  CHECK_EQ(1,0);
 std::cout << "\nSHOULD NOT REACH THIS BRANCH!!!!\n";
-const uint32_t* offsets = gmat.cut.Ptrs().data();
+*/const uint32_t* offsets = gmat.cut.Ptrs().data();
 //std::cout << "ce.begin: " << ce.begin << " ce.end: " << ce.end << "\n";
   for(size_t cid = ce.begin; cid < ce.end; ++cid) {
     FPType* hist_data_local = hist_data + two*(offsets[cid] - offsets[ce.begin]);
@@ -790,13 +790,15 @@ const uint32_t* offsets = gmat.cut.Ptrs().data();
       counter++;
     }
   } else {
-    const DenseColumn<uint8_t>* sparse_column = dynamic_cast<const DenseColumn<uint8_t>*>(column_matrix.GetColumn<uint8_t>(cid).get());
-    if (sparse_column == nullptr) {std::cout << "\nepta!\n";}
-    const uint8_t* gr_index_local = sparse_column->GetFeatureBinIdxPtr().data();
- //   std::cout << "Dense column!: " << sparse_column->Size()<< "\n";
+    const DenseColumn<uint8_t>* dense_column = dynamic_cast<const DenseColumn<uint8_t>*>(column_matrix.GetColumn<uint8_t>(cid).get());
+    if (dense_column == nullptr) {std::cout << "\nepta!\n";}
+//CHECK_EQ(dense_column->Size(),size);
+    const uint8_t* gr_index_local = dense_column->GetFeatureBinIdxPtr().data();
 
     for (size_t i = 0; i < size; ++i) {
+
       const size_t row_id = rid[i];
+      if (dense_column->IsMissing(row_id)) {continue;}
       const size_t idx_gh = two * row_id;
       const uint32_t idx_bin = two * static_cast<uint32_t>(gr_index_local[row_id] /*- offsets[cid]*/);
       hist_data_local[idx_bin]   += pgh[idx_gh];

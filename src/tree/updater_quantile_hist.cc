@@ -140,7 +140,7 @@ void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    if (/*!all_dense || depth >= 5*/depth >= 1 ) {
+    if (/*!all_dense || depth >= 5*/depth >= 5 ) {
       builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
     }
     if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
@@ -176,7 +176,7 @@ void DistributedHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT* builder
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    if (/*!all_dense || depth >= 5*/ depth >= 1) {
+    if (/*!all_dense || depth >= 5*/ depth >= 5) {
       builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
     }
     // Store posible parent node
@@ -336,7 +336,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
   bool all_dense = data_layout_ != DataLayout::kSparseData;
 //std::cout << "\ngmat.index.Size():" << gmat.index.Size() << "\n";
-if (/*all_dense &&*/ gmat.index.Size() != 0 && depth < 1) {
+if (/*all_dense &&*/ gmat.index.Size() != 0 && depth < 5) {
   const size_t n_features = gmat.p_fmat->Info().num_col_;
 
   // create space of size (# rows in each node)
