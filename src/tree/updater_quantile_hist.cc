@@ -383,7 +383,7 @@ if (nodes_for_explicit_hist_build_.size() == 1) {
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
     const int32_t nid = nodes_for_explicit_hist_build_[node].nid;
     return row_set_collection_[nid].Size();
-  }, row_set_collection_size/this->nthread_);
+  }, 256);//row_set_collection_[nodes_for_explicit_hist_build_[0].nid].Size()/this->nthread_);
 
   std::vector<GHistRowT> target_hists(n_nodes);
   for (size_t i = 0; i < n_nodes; ++i) {
@@ -393,18 +393,44 @@ if (nodes_for_explicit_hist_build_.size() == 1) {
 
   hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
 
-  // Parallel processing by nodes and data in each node
-  common::ParallelFor2d(space, this->nthread_, [&](size_t nid_in_set, common::Range1d r) {
-    const auto tid = static_cast<unsigned>(omp_get_thread_num());
-    const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
+  const size_t num_blocks_in_space = space.Size();
+  int nthreads = std::min(this->nthread_, omp_get_max_threads());
+  nthreads = std::max(this->nthread_, 1);
 
-    auto start_of_row_set = row_set_collection_[nid].begin;
-    auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
-                                      start_of_row_set + r.end(),
-                                      nid);
-    const ColumnsElem ce = ColumnsElem(0, 0);
-    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set), column_matrix, ce);
-  });
+//  dmlc::OMPException omp_exc;
+#pragma omp parallel num_threads(nthreads)
+  {
+    //omp_exc.Run(
+     //   [](size_t num_blocks_in_space, const BlockedSpace2d& space, int nthreads, Func func) {
+      size_t tid = omp_get_thread_num();
+      size_t chunck_size =
+          num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+
+      size_t begin = chunck_size * tid;
+      size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+      for (auto i = begin; i < end; i++) {
+//        func(space.GetFirstDimension(i), space.GetRange(i));
+        size_t nid_in_set = space.GetFirstDimension(i); common::Range1d r = space.GetRange(i);
+        const size_t begin_ = r.begin();
+        size_t end_ = r.end();
+        //if (i+1 < end) {
+          while (i + 1 < end && space.GetFirstDimension(i+1) == nid_in_set) {
+            end_ = space.GetRange(i+1).end();
+            ++i;
+          }
+        //}
+        const auto tid = static_cast<unsigned>(omp_get_thread_num());
+        const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
+
+        auto start_of_row_set = row_set_collection_[nid].begin;
+        auto rid_set = RowSetCollection::Elem(start_of_row_set + begin_,
+                                          start_of_row_set + end_,
+                                          nid);
+        const ColumnsElem ce = ColumnsElem(0, 0);
+        BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set), column_matrix, ce);
+      }
+    //}, num_blocks_in_space, space, nthreads, func);
+  }
 } else {
     // create space of size (# rows in each node)
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
@@ -429,7 +455,7 @@ if (nodes_for_explicit_hist_build_.size() == 1) {
     auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
                                       start_of_row_set + r.end(),
                                       nid);
-    const ColumnsElem ce = ColumnsElem(0, 0);
+    const ColumnsElem ce = ColumnsElem(1, 1);
     BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set), column_matrix, ce);
   });
 }
