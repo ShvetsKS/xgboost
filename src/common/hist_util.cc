@@ -545,7 +545,7 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                           const RowSetCollection::Elem row_indices,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<FPType> hist) {
+                          GHistRow<FPType> hist, const ColumnMatrix& column_matrix) {
   const size_t size = row_indices.Size();
   const size_t* rid = row_indices.begin;
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
@@ -556,31 +556,20 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                            // 2 FP values: gradient and hessian.
                            // So we need to multiply each row-index/bin-index by 2
                            // to work with gradient pairs as a singe row FP array
+  for(size_t cid = 0; cid < n_features; ++cid) {
+    const BinIdxType* gr_index_local = column_matrix.GetColumn<BinIdxType>(cid)->GetFeatureBinIdxPtr().data();
+    FPType* hist_data_local = hist_data + two*(offsets[cid]);
+      for (size_t i = 0; i < size; ++i) {
+        const size_t row_id = rid[i];
+        const size_t idx_gh = /*two **/ row_id << 1;
 
-  for (size_t i = 0; i < size; ++i) {
-    const size_t icol_start = rid[i] * n_features;
-    const size_t idx_gh = two * rid[i];
-
-    if (do_prefetch) {
-      const size_t icol_start_prefetch = rid[i + Prefetch::kPrefetchOffset] * n_features;
-
-      PREFETCH_READ_T0(pgh + two * rid[i + Prefetch::kPrefetchOffset]);
-      for (size_t j = icol_start_prefetch; j < icol_start_prefetch + n_features;
-           j += Prefetch::GetPrefetchStep<BinIdxType>()) {
-        PREFETCH_READ_T0(gradient_index + j);
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
       }
-    }
-    const BinIdxType* gr_index_local = gradient_index + icol_start;
-    for (size_t j = 0; j < n_features; ++j) {
-      const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[j]) +
-                                      offsets[j]);
-
-      hist_data[idx_bin]   += pgh[idx_gh];
-      hist_data[idx_bin+1] += pgh[idx_gh+1];
-    }
   }
 }
- 
+
 
 template<typename FPType, bool do_prefetch, typename BinIdxType, bool use_row_idx>
 void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
@@ -679,7 +668,7 @@ void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
     const size_t n_features = row_ptr[row_indices.begin[0]+1] - row_ptr[row_indices.begin[0]];
     if (ce.begin == 0 && ce.end == 0) {
       BuildHistDenseKernel<FPType, do_prefetch, BinIdxType, use_row_idx>(gpair, row_indices,
-                                                         gmat, n_features, hist);
+                                                         gmat, n_features, hist, column_matrix);
     } else {
       BuildHistDenseKernel<FPType, do_prefetch, BinIdxType, use_row_idx>(gpair, row_indices,
                                                          gmat, n_features, hist, column_matrix, ce);
