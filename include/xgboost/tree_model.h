@@ -545,6 +545,8 @@ class RegTree : public Model {
   template <bool has_missing = true>
   int GetLeafIndex(const FVec& feat) const;
 
+  int GetLeafIndex(const Entry* feat) const;
+
   /*!
    * \brief calculate the feature contributions (https://arxiv.org/abs/1706.06060) for the tree
    * \param feat dense feature vector, if the feature is missing the field is set to NaN
@@ -736,6 +738,14 @@ inline int RegTree::GetLeafIndex(const RegTree::FVec& feat) const {
   return nid;
 }
 
+inline int RegTree::GetLeafIndex(const Entry* feat) const {
+  bst_node_t nid = 0;
+  while (!(*this)[nid].IsLeaf()) {
+    unsigned split_index = (*this)[nid].SplitIndex();
+    nid = this->GetNext<false>(nid, feat[split_index].fvalue, false);
+  }
+  return nid;
+}
 /*! \brief get next position of the tree given current pid */
 template <bool has_missing>
 inline int RegTree::GetNext(int pid, bst_float fvalue, bool is_unknown) const {
