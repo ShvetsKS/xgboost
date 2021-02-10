@@ -650,7 +650,7 @@ void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
     const size_t* row_ptr =  gmat.row_ptr.data();
     const size_t n_features = row_ptr[row_indices.begin[0]+1] - row_ptr[row_indices.begin[0]];
     const bool hist_fit_to_l2 = 1024*1024*0.8 > sizeof(FPType)*2*gmat.cut.Ptrs().back();
-    const size_t feature_block_size = hist_fit_to_l2 ? 1 : 32;
+    const size_t feature_block_size = hist_fit_to_l2 ? n_features : 32;
 
     if (read_by_column) {
       BuildHistDenseKernel<FPType, do_prefetch, BinIdxType, true>(gpair, row_indices,
