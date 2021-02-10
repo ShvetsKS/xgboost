@@ -668,11 +668,9 @@ class GHistBuilder {
   GHistBuilder(size_t nthread, uint32_t nbins) : nthread_{nthread}, nbins_{nbins} {}
 
   // construct a histogram via histogram aggregation
-  void BuildHist(const std::vector<GradientPair>& gpair,
-                 const RowSetCollection::Elem row_indices,
-                 const GHistIndexMatrix& gmat,
-                 GHistRowT hist,
-                 bool isDense, const ColumnMatrix& column_matrix, const ColumnsElem ce);
+  void BuildHist(const std::vector<GradientPair> &gpair,
+                 const RowSetCollection::Elem row_indices, const GHistIndexMatrix &gmat,
+                 const ColumnMatrix& column_matrix, GHistRowT hist, bool isDense, const bool read_by_column);
   // same, with feature grouping
   void BuildBlockHist(const std::vector<GradientPair>& gpair,
                       const RowSetCollection::Elem row_indices,

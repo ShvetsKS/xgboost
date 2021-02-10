@@ -129,7 +129,7 @@ template <typename GradientSumT>
 void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
                                                          int,
                                                          int,
-                                                         RegTree *p_tree, bool all_dense, int depth) {
+                                                         RegTree *p_tree) {
   builder->builder_monitor_.Start("SyncHistograms");
   const size_t nbins = builder->hist_builder_.GetNumBins();
   common::BlockedSpace2d space(builder->nodes_for_explicit_hist_build_.size(), [&](size_t) {
@@ -140,9 +140,7 @@ void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    if (!all_dense || depth >= 0) {
-      builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
-    }
+    builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
     if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
       const size_t parent_id = (*p_tree)[entry.nid].Parent();
       auto parent_hist = builder->hist_[parent_id];
@@ -165,7 +163,7 @@ template <typename GradientSumT>
 void DistributedHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT* builder,
                                                  int starting_index,
                                                  int sync_count,
-                                                 RegTree *p_tree, bool all_dense, int depth) {
+                                                 RegTree *p_tree) {
   builder->builder_monitor_.Start("SyncHistograms");
   const size_t nbins = builder->hist_builder_.GetNumBins();
   common::BlockedSpace2d space(builder->nodes_for_explicit_hist_build_.size(), [&](size_t) {
@@ -175,9 +173,7 @@ void DistributedHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT* builder
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    if (!all_dense || depth >= 0) {
-      builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
-    }
+    builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
     // Store posible parent node
     auto this_local = builder->hist_local_worker_[entry.nid];
     CopyHist(this_local, this_hist, r.begin(), r.end());
@@ -318,7 +314,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
 
   hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
   BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, column_matrix);
-  hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree, data_layout_ != DataLayout::kSparseData, 5);
+  hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
 }
 
 template<typename GradientSumT>
@@ -331,53 +327,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
   timer_name += std::to_string(depth);
   builder_monitor_.Start(timer_name.c_str());
 
-
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
-  bool all_dense = data_layout_ != DataLayout::kSparseData;
-//std::cout << "\ngmat.index.Size():" << gmat.index.Size() << "\n";
-if (all_dense && gmat.index.Size() != 0 && depth < 0) {
-  const size_t n_features = gmat.p_fmat->Info().num_col_;
-
-  // create space of size (# rows in each node)
-  const size_t grain_size = std::max((size_t)(n_features / this->nthread_), (size_t)1);
-  common::BlockedSpace2d space(n_nodes, [&](size_t node) {
-    const int32_t nid = nodes_for_explicit_hist_build_[node].nid;
-    return n_features;//row_set_collection_[nid].Size();
-  }, grain_size);
-  std::vector<GHistRowT> target_hists(n_nodes);
-  for (size_t i = 0; i < n_nodes; ++i) {
-    const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
-    target_hists[i] = hist_[nid];
-  }
-  const size_t nthreads = std::min((size_t)(this->nthread_), n_features*n_nodes);
- // hist_buffer_.Reset(nthreads, n_nodes, space, target_hists);
-
-  // Parallel processing by nodes and data in each node
-  common::ParallelFor2d(space, nthreads, [&](size_t nid_in_set, common::Range1d r) {
-    const auto tid = static_cast<unsigned>(omp_get_thread_num());
-    const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
-
-    auto start_of_row_set = row_set_collection_[nid].begin;
-    auto end_of_row_set = row_set_collection_[nid].end;
-    auto rid_set = RowSetCollection::Elem(start_of_row_set,
-                                      end_of_row_set,
-                                      nid);
-    const ColumnsElem ce = ColumnsElem(r.begin(), r.end());
-    GHistRowT node_hist = hist_[nid];//hist_buffer_.GetInitializedHist(tid, nid_in_set);
-    uint32_t start_bins = gmat.cut.Ptrs()[r.begin()];
-    uint32_t end_bins = gmat.cut.Ptrs()[r.end()];
-    std::vector<GradientSumT> localh(2*(end_bins - start_bins), 0);
-    GHistRowT local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>(localh.data()), end_bins - start_bins);
-    //common::InitilizeHistByZeroes(local_hist, 0, local_hist.size());
-    BuildHist(gpair_h, rid_set, gmat, gmatb, local_hist, column_matrix, ce);
-    GradientSumT* pdst = reinterpret_cast<GradientSumT*>(node_hist.data() + start_bins);
-    for(size_t i = 0; i < localh.size(); ++i) {
-      pdst[i] = localh[i];
-    }
-
-  });
-} else {
-if (nodes_for_explicit_hist_build_.size() == 1) {
   // create space of size (# rows in each node)
   const size_t row_set_collection_size = row_set_collection_[nodes_for_explicit_hist_build_[0].nid].Size();
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
@@ -393,74 +343,51 @@ if (nodes_for_explicit_hist_build_.size() == 1) {
 
   hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
 
-  const size_t num_blocks_in_space = space.Size();
-  int nthreads = std::min(this->nthread_, omp_get_max_threads());
-  nthreads = std::max(this->nthread_, 1);
-
-//  dmlc::OMPException omp_exc;
-#pragma omp parallel num_threads(nthreads)
-  {
-    //omp_exc.Run(
-     //   [](size_t num_blocks_in_space, const BlockedSpace2d& space, int nthreads, Func func) {
+  const bool hist_fit_to_l2 = 1024*1024*0.8 > sizeof(GradientSumT)*2*gmat.cut.Ptrs().back();
+  if (!hist_fit_to_l2 && data_layout_ != DataLayout::kSparseData && n_nodes <= 2) {
+    const size_t num_blocks_in_space = space.Size();
+    int nthreads = std::min(this->nthread_, omp_get_max_threads());
+    nthreads = std::max(this->nthread_, 1);
+    #pragma omp parallel num_threads(nthreads)
+    {
       size_t tid = omp_get_thread_num();
-      size_t chunck_size =
-          num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
-
+      size_t chunck_size = num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
       size_t begin = chunck_size * tid;
       size_t end = std::min(begin + chunck_size, num_blocks_in_space);
       for (auto i = begin; i < end; i++) {
-//        func(space.GetFirstDimension(i), space.GetRange(i));
         size_t nid_in_set = space.GetFirstDimension(i); common::Range1d r = space.GetRange(i);
         const size_t begin_ = r.begin();
         size_t end_ = r.end();
-        //if (i+1 < end) {
-          while (i + 1 < end && space.GetFirstDimension(i+1) == nid_in_set) {
-            end_ = space.GetRange(i+1).end();
-            ++i;
-          }
-        //}
+        // merge all small tasks into one
+        while (i + 1 < end && space.GetFirstDimension(i+1) == nid_in_set) {
+          end_ = space.GetRange(i + 1).end();
+          ++i;
+        }
         const auto tid = static_cast<unsigned>(omp_get_thread_num());
         const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
 
         auto start_of_row_set = row_set_collection_[nid].begin;
         auto rid_set = RowSetCollection::Elem(start_of_row_set + begin_,
-                                          start_of_row_set + end_,
-                                          nid);
-        const ColumnsElem ce = ColumnsElem(0, 0);
-        BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set), column_matrix, ce);
+                                              start_of_row_set + end_,
+                                              nid);
+        BuildHist(gpair_h, rid_set, gmat, gmatb, column_matrix, hist_buffer_.GetInitializedHist(tid, nid_in_set), true /*read_by_column*/);
       }
-    //}, num_blocks_in_space, space, nthreads, func);
+    }
+  } else {
+    // Parallel processing by nodes and data in each node
+    common::ParallelFor2d(space, this->nthread_, [&](size_t nid_in_set, common::Range1d r) {
+      const auto tid = static_cast<unsigned>(omp_get_thread_num());
+      const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
+
+      auto start_of_row_set = row_set_collection_[nid].begin;
+      auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
+                                        start_of_row_set + r.end(),
+                                        nid);
+      BuildHist(gpair_h, rid_set, gmat, gmatb, column_matrix, hist_buffer_.GetInitializedHist(tid, nid_in_set), false /*read_by_column*/);
+    });
   }
-} else {
-    // create space of size (# rows in each node)
-  common::BlockedSpace2d space(n_nodes, [&](size_t node) {
-    const int32_t nid = nodes_for_explicit_hist_build_[node].nid;
-    return row_set_collection_[nid].Size();
-  }, 256);
 
-  std::vector<GHistRowT> target_hists(n_nodes);
-  for (size_t i = 0; i < n_nodes; ++i) {
-    const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
-    target_hists[i] = hist_[nid];
-  }
 
-  hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
-
-  // Parallel processing by nodes and data in each node
-  common::ParallelFor2d(space, this->nthread_, [&](size_t nid_in_set, common::Range1d r) {
-    const auto tid = static_cast<unsigned>(omp_get_thread_num());
-    const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
-
-    auto start_of_row_set = row_set_collection_[nid].begin;
-    auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
-                                      start_of_row_set + r.end(),
-                                      nid);
-    const ColumnsElem ce = ColumnsElem(1, 1);
-    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set), column_matrix, ce);
-  });
-}
-
-}
   builder_monitor_.Stop(timer_name.c_str());
 }
 
@@ -606,7 +533,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
     BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, column_matrix, depth);
-    hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree, data_layout_ != DataLayout::kSparseData, depth);
+    hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
 
     EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
