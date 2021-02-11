@@ -670,7 +670,8 @@ class GHistBuilder {
   // construct a histogram via histogram aggregation
   void BuildHist(const std::vector<GradientPair> &gpair,
                  const RowSetCollection::Elem row_indices, const GHistIndexMatrix &gmat,
-                 const ColumnMatrix& column_matrix, GHistRowT hist, bool isDense, const bool read_by_column);
+                 const ColumnMatrix& column_matrix, const bool read_by_column,
+                 GHistRowT hist, bool isDense);
   // same, with feature grouping
   void BuildBlockHist(const std::vector<GradientPair>& gpair,
                       const RowSetCollection::Elem row_indices,

@@ -19,7 +19,7 @@ namespace common {
 
 
 struct ColumnsElem {
-public:
+ public:
   const size_t begin{0};
   const size_t end{0};
   ColumnsElem()
