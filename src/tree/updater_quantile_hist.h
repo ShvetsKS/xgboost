@@ -340,7 +340,7 @@ class QuantileHistMaker: public TreeUpdater {
     void BuildLocalHistograms(const GHistIndexMatrix &gmat,
                               const GHistIndexBlockMatrix &gmatb,
                               RegTree *p_tree,
-                              const std::vector<GradientPair> &gpair_h);
+                              const std::vector<GradientPair> &gpair_h, int depth = 0);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,

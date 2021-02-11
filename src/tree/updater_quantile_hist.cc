@@ -309,13 +309,20 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
   BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
   hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
 }
-
+static size_t N_CALL = 0;
+#include <sys/time.h>
+#include <time.h>
+uint64_t get_time() {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return t.tv_sec * 1000000000 + t.tv_nsec;
+}
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     const GHistIndexMatrix &gmat,
     const GHistIndexBlockMatrix &gmatb,
     RegTree *p_tree,
-    const std::vector<GradientPair> &gpair_h) {
+    const std::vector<GradientPair> &gpair_h, int depth) {
   builder_monitor_.Start("BuildLocalHistograms");
 
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
@@ -334,8 +341,25 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
 
   hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
 
-  // Parallel processing by nodes and data in each node
-  common::ParallelFor2d(space, this->nthread_, [&](size_t nid_in_set, common::Range1d r) {
+//  // Parallel processing by nodes and data in each node
+//  common::ParallelFor2d(space, this->nthread_, [&](size_t nid_in_set, common::Range1d r) {
+//    const auto tid = static_cast<unsigned>(omp_get_thread_num());
+//    const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
+//
+//    auto start_of_row_set = row_set_collection_[nid].begin;
+//    auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
+//                                      start_of_row_set + r.end(),
+//                                      nid);
+//    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set));
+//  });
+
+
+  int nthreads = this->nthread_;
+  const size_t num_blocks_in_space = space.Size();
+  nthreads = std::min(nthreads, omp_get_max_threads());
+  nthreads = std::max(nthreads, 1);
+
+auto func = [&](size_t nid_in_set, common::Range1d r) {
     const auto tid = static_cast<unsigned>(omp_get_thread_num());
     const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
 
@@ -344,9 +368,51 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
                                       start_of_row_set + r.end(),
                                       nid);
     BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set));
-  });
+  };
 
+std::vector<std::vector<uint64_t>> treads_times(nthreads);
+const uint64_t t1 = get_time();
+//  dmlc::OMPException omp_exc;
+#pragma omp parallel num_threads(nthreads)
+  {
+/*    omp_exc.Run(
+        [&treads_times](size_t num_blocks_in_space, const common::BlockedSpace2d& space, int nthreads, auto& func) {*/
+      size_t tid = omp_get_thread_num();
+      treads_times[tid].resize(1,0);
+      uint64_t& local_time = treads_times[tid][0];
+      //const uint64_t t1 = get_time();
+      size_t chunck_size =
+          num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+
+      size_t begin = chunck_size * tid;
+      size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+      for (auto i = begin; i < end; i++) {
+        func(space.GetFirstDimension(i), space.GetRange(i));
+      }
+      local_time = get_time();
+//    }, num_blocks_in_space, space, nthreads, func);
+  }
+//  omp_exc.Rethrow();
+
+static std::vector<std::vector<uint64_t> > times(9, std::vector<uint64_t>(nthreads, 0));
+static int n_call = 0;
+
+for(int i = 0; i < nthreads; ++i) {
+  times[depth][i] += treads_times[i][0] - t1;
+}
+
+if(++n_call == N_CALL) {
+  std::cout << "\nBuildLocalHist: " << N_CALL <<"\n";
+  for(int di = 0; di < 9; ++di) {
+    std::cout << "depth " << di << ": ";
+    for(int i = 0; i < nthreads; ++i) {
+      std::cout << (double)(times[di][i])/1000000000 << "\t";
+    }
+    std::cout << std::endl;
+  }
+}
   builder_monitor_.Stop("BuildLocalHistograms");
+
 }
 
 template<typename GradientSumT>
@@ -490,7 +556,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
     SplitSiblings(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
+    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth);
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
 
@@ -586,7 +652,6 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
   }
   builder_monitor_.Stop("ExpandWithLossGuide");
 }
-
 template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::Update(
     const GHistIndexMatrix &gmat, const GHistIndexBlockMatrix &gmatb,
@@ -604,6 +669,7 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
   if (param_.grow_policy == TrainParam::kLossGuide) {
     ExpandWithLossGuide(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
   } else {
+    N_CALL = (param_.max_depth + 1) * 500;
     ExpandWithDepthWise(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
   }
 
