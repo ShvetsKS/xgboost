@@ -275,8 +275,10 @@ class QuantileHistMock : public QuantileHistMaker {
       GHistIndexBlockMatrix dummy;
       this->hist_.AddHistRow(nid);
       this->hist_.AllocateAllData();
+      ColumnMatrix cm;
+      cm.Init(gmat, 0.0);
       this->BuildHist(gpair, this->row_set_collection_[nid],
-                gmat, dummy, this->hist_[nid]);
+                gmat, dummy, cm, this->hist_[nid], false);
 
       // Check if number of histogram bins is correct
       ASSERT_EQ(this->hist_[nid].size(), gmat.cut.Ptrs().back());
@@ -317,8 +319,10 @@ class QuantileHistMock : public QuantileHistMaker {
       RealImpl::InitData(gmat, row_gpairs, *dmat, tree);
       this->hist_.AddHistRow(0);
       this->hist_.AllocateAllData();
+      ColumnMatrix cm;
+      cm.Init(gmat, 0.0);
       this->BuildHist(row_gpairs, this->row_set_collection_[0],
-                      gmat, quantile_index_block, this->hist_[0]);
+                      gmat, quantile_index_block, cm, this->hist_[0], false);
 
       RealImpl::InitNewNode(0, gmat, row_gpairs, *dmat, tree);
 
