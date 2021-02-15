@@ -295,9 +295,9 @@ class QuantileHistMaker: public TreeUpdater {
                         const GHistIndexMatrix& gmat,
                         const ColumnMatrix& column_matrix,
                         const HistCollection<GradientSumT>& hist,
-                        RegTree* p_tree);
+                        RegTree* p_tree, int depth = 0);
 
-    template <typename BinIdxType>
+    template <typename BinIdxType, bool is_root>
     void PartitionKernel(const size_t node_in_set, const size_t nid, common::Range1d range,
                          const int32_t split_cond,
                          const ColumnMatrix& column_matrix, const RegTree& tree);
@@ -424,7 +424,7 @@ class QuantileHistMaker: public TreeUpdater {
     std::unique_ptr<TreeUpdater> pruner_;
     FeatureInteractionConstraintHost interaction_constraints_;
 
-    static constexpr size_t kPartitionBlockSize = 2048;
+    static constexpr size_t kPartitionBlockSize = 4096;
     common::PartitionBuilder<kPartitionBlockSize> partition_builder_;
 
     // back pointers to tree and data matrix

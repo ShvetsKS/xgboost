@@ -29,6 +29,14 @@
 #include "../common/row_set.h"
 #include "../common/column_matrix.h"
 #include "../common/threading_utils.h"
+#if defined(XGBOOST_MM_PREFETCH_PRESENT)
+  #include <xmmintrin.h>
+  #define PREFETCH_READ_T0(addr) _mm_prefetch(reinterpret_cast<const char*>(addr), _MM_HINT_T0)
+#elif defined(XGBOOST_BUILTIN_PREFETCH_PRESENT)
+  #define PREFETCH_READ_T0(addr) __builtin_prefetch(reinterpret_cast<const char*>(addr), 0, 3)
+#else  // no SW pre-fetching available; PREFETCH_READ_T0 is no-op
+  #define PREFETCH_READ_T0(addr) do {} while (0)
+#endif  // defined(XGBOOST_MM_PREFETCH_PRESENT)
 
 namespace xgboost {
 namespace tree {
@@ -323,9 +331,20 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     const GHistIndexBlockMatrix &gmatb,
     RegTree *p_tree,
     const std::vector<GradientPair> &gpair_h, int depth) {
-  builder_monitor_.Start("BuildLocalHistograms");
+      std::string timer_name = "BuildLocalHistograms:";
+      timer_name += std::to_string(depth);
+  builder_monitor_.Start(timer_name);
 
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
+
+static size_t summs[] = {0,0,0,0,0,0,0,0,0};
+
+//size_t summ_size = 0;
+for (size_t i = 0; i < n_nodes; ++i) {
+    const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
+  summs[depth] += row_set_collection_[nid].Size();
+}
+std::cout << "\ndepth "  << depth << ": " << summs[depth] << "\n";
 
   // create space of size (# rows in each node)
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
@@ -411,7 +430,7 @@ if(++n_call == N_CALL) {
     std::cout << std::endl;
   }
 }
-  builder_monitor_.Stop("BuildLocalHistograms");
+  builder_monitor_.Stop(timer_name);
 
 }
 
@@ -497,7 +516,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
   std::vector<ExpandEntry> nodes_for_apply_split;
   AddSplitsToTree(gmat, p_tree, num_leaves, depth, timestamp,
                   &nodes_for_apply_split, temp_qexpand_depth);
-  ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree);
+  ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree, depth);
 }
 
 // Split nodes to 2 sets depending on amount of rows in each node
@@ -1037,7 +1056,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateSplits(
 // on comparison of indexes values (idx_span) and split point (split_cond)
 // Handle dense columns
 // Analog of std::stable_partition, but in no-inplace manner
-template <bool default_left, bool any_missing, typename BinIdxType>
+template <bool default_left, bool any_missing, bool is_root, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionDenseKernel(const common::DenseColumn<BinIdxType>& column,
       common::Span<const size_t> rid_span, const int32_t split_cond,
       common::Span<size_t> left_part, common::Span<size_t> right_part) {
@@ -1048,6 +1067,24 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(const common::DenseColumn<
   size_t nleft_elems = 0;
   size_t nright_elems = 0;
 
+  const size_t* rid_span_ptr = rid_span.data();
+  const size_t rid_span_size = rid_span.size();
+
+if (is_root) {
+    for (size_t i = rid_span_ptr[0]; i < rid_span_ptr[0] + rid_span_size; ++i)  {
+        const size_t cond = size_t(bool((static_cast<int32_t>(idx[i]) + offset) <= split_cond));
+        //if ((static_cast<int32_t>(idx[rid]) + offset) <= split_cond) {
+        //  p_left_part[nleft_elems++] = rid;
+        //} else {
+        //  p_right_part[nright_elems++] = rid;
+        //}
+        p_left_part[nleft_elems] = i;
+        p_right_part[nright_elems] = i;
+        nleft_elems += cond;
+        nright_elems += !cond;
+    }
+}
+else {
   if (any_missing) {
     for (auto rid : rid_span) {
       if (column.IsMissing(rid)) {
@@ -1065,14 +1102,51 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(const common::DenseColumn<
       }
     }
   } else {
-    for (auto rid : rid_span)  {
-      if ((static_cast<int32_t>(idx[rid]) + offset) <= split_cond) {
-        p_left_part[nleft_elems++] = rid;
-      } else {
-        p_right_part[nright_elems++] = rid;
+    if (rid_span_size >= 64) {
+      for (size_t i = 0; i < rid_span_size - 64; ++i)  {
+        const size_t rid = rid_span_ptr[i];
+        PREFETCH_READ_T0(idx + rid_span_ptr[i + 64]);
+        const size_t cond = size_t(bool((static_cast<int32_t>(idx[rid]) + offset) <= split_cond));
+        //if ((static_cast<int32_t>(idx[rid]) + offset) <= split_cond) {
+        //  p_left_part[nleft_elems++] = rid;
+        //} else {
+        //  p_right_part[nright_elems++] = rid;
+        //}
+        p_left_part[nleft_elems] = rid;
+        p_right_part[nright_elems] = rid;
+        nleft_elems += cond;
+        nright_elems += !cond;
+      }
+      for (size_t i = rid_span_size - 64; i < rid_span_size; ++i)  {
+        const size_t rid = rid_span_ptr[i];
+        const size_t cond = size_t(bool((static_cast<int32_t>(idx[rid]) + offset) <= split_cond));
+        //if ((static_cast<int32_t>(idx[rid]) + offset) <= split_cond) {
+        //  p_left_part[nleft_elems++] = rid;
+        //} else {
+        //  p_right_part[nright_elems++] = rid;
+        //}
+        p_left_part[nleft_elems] = rid;
+        p_right_part[nright_elems] = rid;
+        nleft_elems += cond;
+        nright_elems += !cond;
+      }
+    } else {
+      for (size_t i = 0; i < rid_span_size; ++i)  {
+        const size_t rid = rid_span_ptr[i];
+        const size_t cond = size_t(bool((static_cast<int32_t>(idx[rid]) + offset) <= split_cond));
+        //if ((static_cast<int32_t>(idx[rid]) + offset) <= split_cond) {
+        //  p_left_part[nleft_elems++] = rid;
+        //} else {
+        //  p_right_part[nright_elems++] = rid;
+        //}
+        p_left_part[nleft_elems] = rid;
+        p_right_part[nright_elems] = rid;
+        nleft_elems += cond;
+        nright_elems += !cond;
       }
     }
   }
+}
   return {nleft_elems, nright_elems};
 }
 
@@ -1136,7 +1210,7 @@ inline std::pair<size_t, size_t> PartitionSparseKernel(
 }
 
 template <typename GradientSumT>
-template <typename BinIdxType>
+template <typename BinIdxType, bool is_root>
 void QuantileHistMaker::Builder<GradientSumT>::PartitionKernel(
     const size_t node_in_set, const size_t nid, common::Range1d range,
     const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree) {
@@ -1158,18 +1232,18 @@ void QuantileHistMaker::Builder<GradientSumT>::PartitionKernel(
           static_cast<const common::DenseColumn<BinIdxType>& >(*(column_ptr.get()));
     if (default_left) {
       if (column_matrix.AnyMissing()) {
-        child_nodes_sizes = PartitionDenseKernel<true, true>(column, rid_span, split_cond,
+        child_nodes_sizes = PartitionDenseKernel<true, true, is_root>(column, rid_span, split_cond,
                                                              left, right);
       } else {
-        child_nodes_sizes = PartitionDenseKernel<true, false>(column, rid_span, split_cond,
+        child_nodes_sizes = PartitionDenseKernel<true, false, is_root>(column, rid_span, split_cond,
                                                               left, right);
       }
     } else {
       if (column_matrix.AnyMissing()) {
-        child_nodes_sizes = PartitionDenseKernel<false, true>(column, rid_span, split_cond,
+        child_nodes_sizes = PartitionDenseKernel<false, true, is_root>(column, rid_span, split_cond,
                                                               left, right);
       } else {
-        child_nodes_sizes = PartitionDenseKernel<false, false>(column, rid_span, split_cond,
+        child_nodes_sizes = PartitionDenseKernel<false, false, is_root>(column, rid_span, split_cond,
                                                                left, right);
       }
     }
@@ -1238,7 +1312,9 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
                                             const GHistIndexMatrix& gmat,
                                             const ColumnMatrix& column_matrix,
                                             const HistCollection<GradientSumT>& hist,
-                                            RegTree* p_tree) {
+                                            RegTree* p_tree, int depth) {
+  std::string timer_name = "Partition:";
+  timer_name += std::to_string(depth);
   builder_monitor_.Start("ApplySplit");
   // 1. Find split condition for each split
   const size_t n_nodes = nodes.size();
@@ -1259,28 +1335,50 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
   });
   // 2.3 Split elements of row_set_collection_ to left and right child-nodes for each node
   // Store results in intermediate buffers from partition_builder_
+  builder_monitor_.Start(timer_name);
   common::ParallelFor2d(space, this->nthread_, [&](size_t node_in_set, common::Range1d r) {
     size_t begin = r.begin();
     const int32_t nid = nodes[node_in_set].nid;
     const size_t task_id = partition_builder_.GetTaskIdx(node_in_set, begin);
     partition_builder_.AllocateForTask(task_id);
-      switch (column_matrix.GetTypeSize()) {
+if (depth == 0) {
+        switch (column_matrix.GetTypeSize()) {
       case common::kUint8BinsTypeSize:
-        PartitionKernel<uint8_t>(node_in_set, nid, r,
+        PartitionKernel<uint8_t, true>(node_in_set, nid, r,
                   split_conditions[node_in_set], column_matrix, *p_tree);
         break;
       case common::kUint16BinsTypeSize:
-        PartitionKernel<uint16_t>(node_in_set, nid, r,
+        PartitionKernel<uint16_t, true>(node_in_set, nid, r,
                   split_conditions[node_in_set], column_matrix, *p_tree);
         break;
       case common::kUint32BinsTypeSize:
-        PartitionKernel<uint32_t>(node_in_set, nid, r,
+        PartitionKernel<uint32_t, true>(node_in_set, nid, r,
                   split_conditions[node_in_set], column_matrix, *p_tree);
         break;
       default:
         CHECK(false);  // no default behavior
     }
+} else {
+      switch (column_matrix.GetTypeSize()) {
+      case common::kUint8BinsTypeSize:
+        PartitionKernel<uint8_t, false>(node_in_set, nid, r,
+                  split_conditions[node_in_set], column_matrix, *p_tree);
+        break;
+      case common::kUint16BinsTypeSize:
+        PartitionKernel<uint16_t, false>(node_in_set, nid, r,
+                  split_conditions[node_in_set], column_matrix, *p_tree);
+        break;
+      case common::kUint32BinsTypeSize:
+        PartitionKernel<uint32_t, false>(node_in_set, nid, r,
+                  split_conditions[node_in_set], column_matrix, *p_tree);
+        break;
+      default:
+        CHECK(false);  // no default behavior
+    }
+}
     });
+    builder_monitor_.Stop(timer_name);
+
   // 3. Compute offsets to copy blocks of row-indexes
   // from partition_builder_ to row_set_collection_
   partition_builder_.CalculateRowOffsets();
@@ -1432,25 +1530,43 @@ GradStats QuantileHistMaker::Builder<GradientSumT>::EnumerateSplit(
 
 template struct QuantileHistMaker::Builder<float>;
 template struct QuantileHistMaker::Builder<double>;
-template void QuantileHistMaker::Builder<float>::PartitionKernel<uint8_t>(
+template void QuantileHistMaker::Builder<float>::PartitionKernel<uint8_t, true>(
     const size_t node_in_set, const size_t nid, common::Range1d range,
     const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
-template void QuantileHistMaker::Builder<float>::PartitionKernel<uint16_t>(
+template void QuantileHistMaker::Builder<float>::PartitionKernel<uint16_t, true>(
     const size_t node_in_set, const size_t nid, common::Range1d range,
     const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
-template void QuantileHistMaker::Builder<float>::PartitionKernel<uint32_t>(
+template void QuantileHistMaker::Builder<float>::PartitionKernel<uint32_t, true>(
     const size_t node_in_set, const size_t nid, common::Range1d range,
     const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
-template void QuantileHistMaker::Builder<double>::PartitionKernel<uint8_t>(
+template void QuantileHistMaker::Builder<double>::PartitionKernel<uint8_t, true>(
     const size_t node_in_set, const size_t nid, common::Range1d range,
     const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
-template void QuantileHistMaker::Builder<double>::PartitionKernel<uint16_t>(
+template void QuantileHistMaker::Builder<double>::PartitionKernel<uint16_t, true>(
     const size_t node_in_set, const size_t nid, common::Range1d range,
     const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
-template void QuantileHistMaker::Builder<double>::PartitionKernel<uint32_t>(
+template void QuantileHistMaker::Builder<double>::PartitionKernel<uint32_t, true>(
     const size_t node_in_set, const size_t nid, common::Range1d range,
     const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
 
+template void QuantileHistMaker::Builder<float>::PartitionKernel<uint8_t, false>(
+    const size_t node_in_set, const size_t nid, common::Range1d range,
+    const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
+template void QuantileHistMaker::Builder<float>::PartitionKernel<uint16_t, false>(
+    const size_t node_in_set, const size_t nid, common::Range1d range,
+    const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
+template void QuantileHistMaker::Builder<float>::PartitionKernel<uint32_t, false>(
+    const size_t node_in_set, const size_t nid, common::Range1d range,
+    const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
+template void QuantileHistMaker::Builder<double>::PartitionKernel<uint8_t, false>(
+    const size_t node_in_set, const size_t nid, common::Range1d range,
+    const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
+template void QuantileHistMaker::Builder<double>::PartitionKernel<uint16_t, false>(
+    const size_t node_in_set, const size_t nid, common::Range1d range,
+    const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
+template void QuantileHistMaker::Builder<double>::PartitionKernel<uint32_t, false>(
+    const size_t node_in_set, const size_t nid, common::Range1d range,
+    const int32_t split_cond, const ColumnMatrix& column_matrix, const RegTree& tree);
 XGBOOST_REGISTER_TREE_UPDATER(FastHistMaker, "grow_fast_histmaker")
 .describe("(Deprecated, use grow_quantile_histmaker instead.)"
           " Grow tree using quantized histogram.")
