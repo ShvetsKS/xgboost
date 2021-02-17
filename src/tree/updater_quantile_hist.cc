@@ -333,24 +333,30 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     const std::vector<GradientPair> &gpair_h, int depth) {
       std::string timer_name = "BuildLocalHistograms:";
       timer_name += std::to_string(depth);
-  builder_monitor_.Start(timer_name);
 
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
 
 static size_t summs[] = {0,0,0,0,0,0,0,0,0};
+static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
 
 //size_t summ_size = 0;
-for (size_t i = 0; i < n_nodes; ++i) {
-    const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
-  summs[depth] += row_set_collection_[nid].Size();
-}
-std::cout << "\ndepth "  << depth << ": " << summs[depth] << "\n";
-
+//size_t dist = 0;
+//
+//for (size_t i = 0; i < n_nodes; ++i) {
+//    const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
+//  summ_size += row_set_collection_[nid].Size();
+//  for(size_t j = 0; j < row_set_collection_[nid].Size() - 1; ++j) {
+//    CHECK_GE(*(row_set_collection_[nid].begin + j + 1), *(row_set_collection_[nid].begin + j));
+//    dist += *(row_set_collection_[nid].begin + j + 1) - *(row_set_collection_[nid].begin + j);
+//  }
+//}
+//summs[depth] += summ_size;
+//average_dist[depth] += dist/(summ_size-n_nodes);
   // create space of size (# rows in each node)
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
     const int32_t nid = nodes_for_explicit_hist_build_[node].nid;
     return row_set_collection_[nid].Size();
-  }, 256);
+  }, 4096);
 
   std::vector<GHistRowT> target_hists(n_nodes);
   for (size_t i = 0; i < n_nodes; ++i) {
@@ -359,6 +365,7 @@ std::cout << "\ndepth "  << depth << ": " << summs[depth] << "\n";
   }
 
   hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
+  builder_monitor_.Start(timer_name);
 
 //  // Parallel processing by nodes and data in each node
 //  common::ParallelFor2d(space, this->nthread_, [&](size_t nid_in_set, common::Range1d r) {
@@ -405,8 +412,17 @@ const uint64_t t1 = get_time();
 
       size_t begin = chunck_size * tid;
       size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+      uint64_t local_time_alloc = 0;
       for (auto i = begin; i < end; i++) {
-        func(space.GetFirstDimension(i), space.GetRange(i));
+        size_t nid_in_set = space.GetFirstDimension(i); common::Range1d r = space.GetRange(i);
+        //const auto tid = static_cast<unsigned>(omp_get_thread_num());
+        const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
+
+        auto start_of_row_set = row_set_collection_[nid].begin;
+        auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
+                                              start_of_row_set + r.end(),
+                                              nid);
+        BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set));
       }
       local_time = get_time();
 //    }, num_blocks_in_space, space, nthreads, func);
@@ -420,7 +436,14 @@ for(int i = 0; i < nthreads; ++i) {
   times[depth][i] += treads_times[i][0] - t1;
 }
 
-if(++n_call == N_CALL) {
+if(++n_call == N_CALL/5) {
+  std::cout << "\n";
+  for(int di = 0; di < 9; ++di) {
+    std::cout << "!depth "  << di << ": " << summs[di] << "\n";
+  }
+  for(int di = 0; di < 9; ++di) {
+    std::cout << "!average_dist "  << di << ": " << average_dist[di] << "\n";
+  }
   std::cout << "\nBuildLocalHist: " << N_CALL <<"\n";
   for(int di = 0; di < 9; ++di) {
     std::cout << "depth " << di << ": ";
