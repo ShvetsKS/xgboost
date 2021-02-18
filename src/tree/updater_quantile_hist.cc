@@ -173,7 +173,7 @@ void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    //builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
+    builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
 
     if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
       const size_t parent_id = (*p_tree)[entry.nid].Parent();
@@ -395,15 +395,15 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
   nthreads = std::min(nthreads, omp_get_max_threads());
   nthreads = std::max(nthreads, 1);
 
-#pragma omp parallel num_threads(nthreads)
-{
-  const size_t tid = omp_get_thread_num();
-  for (size_t i = 0; i < n_nodes; ++i) {
-    for (size_t bin_id = 0; bin_id <  n_bins*2; ++bin_id) {
-      (*histograms)[tid][2*i*n_bins + bin_id] = 0;
-    }
-  }
-}
+//#pragma omp parallel num_threads(nthreads)
+//{
+//  const size_t tid = omp_get_thread_num();
+//  for (size_t i = 0; i < n_nodes; ++i) {
+//    for (size_t bin_id = 0; bin_id <  n_bins*2; ++bin_id) {
+//      (*histograms)[tid][2*i*n_bins + bin_id] = 0;
+//    }
+//  }
+//}
 
   builder_monitor_.Start(timer_name);
 
@@ -461,8 +461,8 @@ const uint64_t t1 = get_time();
         auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
                                               start_of_row_set + r.end(),
                                               nid);
-        GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data() + 2*nid_in_set*n_bins), n_bins);
-        BuildHist(gpair_h, rid_set, gmat, gmatb, local_hist, numa);
+        //GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data() + 2*nid_in_set*n_bins), n_bins);
+        BuildHist(gpair_h, rid_set, gmat, gmatb,  hist_buffer_.GetInitializedHist(tid, nid_in_set), numa);
       }
       local_time = get_time();
 //    }, num_blocks_in_space, space, nthreads, func);
@@ -495,19 +495,19 @@ if(++n_call == N_CALL/5) {
 }
   builder_monitor_.Stop(timer_name);
 
-  for (size_t i = 0; i < n_nodes; ++i) {
-    const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
-    //target_hists[i] = hist_[nid];
-    GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
-    for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
-      dest_hist[bin_id] = (*histograms)[0][2*i*n_bins + bin_id];
-    }
-    for (size_t tid = 1; tid < nthreads; ++tid) {
-      for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
-        dest_hist[bin_id] += (*histograms)[tid][2*i*n_bins + bin_id];
-      }
-    }
-  }
+  //for (size_t i = 0; i < n_nodes; ++i) {
+  //  const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
+  //  //target_hists[i] = hist_[nid];
+  //  GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
+  //  for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
+  //    dest_hist[bin_id] = (*histograms)[0][2*i*n_bins + bin_id];
+  //  }
+  //  for (size_t tid = 1; tid < nthreads; ++tid) {
+  //    for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
+  //      dest_hist[bin_id] += (*histograms)[tid][2*i*n_bins + bin_id];
+  //    }
+  //  }
+  //}
 
 }
 
