@@ -539,6 +539,17 @@ struct Prefetch {
 
 constexpr size_t Prefetch::kNoPrefetchSize;
 
+#define UNR(IDX, J)                                                                                    \
+    const uint32_t idx_bin##IDX = two * (static_cast<uint32_t>(gr_index_local[13*J + IDX]) + offsets[13*J + IDX]); \
+    hist_data[idx_bin##IDX]   += pgh[idx_gh]; \
+    hist_data[idx_bin##IDX+1] += pgh[idx_gh+1];
+
+#define UNR_TAIL(IDX)                                                                                    \
+    const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[IDX]) + offsets[IDX]); \
+    hist_data[idx_bin]   += pgh[idx_gh]; \
+    hist_data[idx_bin+1] += pgh[idx_gh+1];
+
+
 template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                           const RowSetCollection::Elem row_indices,
@@ -555,6 +566,8 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                            // 2 FP values: gradient and hessian.
                            // So we need to multiply each row-index/bin-index by 2
                            // to work with gradient pairs as a singe row FP array
+  const size_t nb = n_features / 13;
+  const size_t tail_size = n_features - nb*13;
 
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = rid[i] * n_features;
@@ -570,92 +583,39 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
       }
     }
     const uint8_t* gr_index_local = gradient_index + icol_start;
-      const uint32_t idx_bin1 = two * (static_cast<uint32_t>(gr_index_local[0]) +
-                                      offsets[0]);
-
-      hist_data[idx_bin1]   += pgh[idx_gh];
-      hist_data[idx_bin1+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin2 = two * (static_cast<uint32_t>(gr_index_local[1]) +
-                                      offsets[1]);
-
-      hist_data[idx_bin2]   += pgh[idx_gh];
-      hist_data[idx_bin2+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin3 = two * (static_cast<uint32_t>(gr_index_local[2]) +
-                                      offsets[2]);
-
-      hist_data[idx_bin3]   += pgh[idx_gh];
-      hist_data[idx_bin3+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin4 = two * (static_cast<uint32_t>(gr_index_local[3]) +
-                                      offsets[3]);
-
-      hist_data[idx_bin4]   += pgh[idx_gh];
-      hist_data[idx_bin4+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin5 = two * (static_cast<uint32_t>(gr_index_local[4]) +
-                                      offsets[4]);
-
-      hist_data[idx_bin5]   += pgh[idx_gh];
-      hist_data[idx_bin5+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin6 = two * (static_cast<uint32_t>(gr_index_local[5]) +
-                                      offsets[5]);
-
-      hist_data[idx_bin6]   += pgh[idx_gh];
-      hist_data[idx_bin6+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin7 = two * (static_cast<uint32_t>(gr_index_local[6]) +
-                                      offsets[6]);
-
-      hist_data[idx_bin7]   += pgh[idx_gh];
-      hist_data[idx_bin7+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin8 = two * (static_cast<uint32_t>(gr_index_local[7]) +
-                                      offsets[7]);
-
-      hist_data[idx_bin8]   += pgh[idx_gh];
-      hist_data[idx_bin8+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin9 = two * (static_cast<uint32_t>(gr_index_local[8]) +
-                                      offsets[8]);
-
-      hist_data[idx_bin9]   += pgh[idx_gh];
-      hist_data[idx_bin9+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin10 = two * (static_cast<uint32_t>(gr_index_local[9]) +
-                                      offsets[9]);
-
-      hist_data[idx_bin10]   += pgh[idx_gh];
-      hist_data[idx_bin10+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin11 = two * (static_cast<uint32_t>(gr_index_local[10]) +
-                                      offsets[10]);
-
-      hist_data[idx_bin11]   += pgh[idx_gh];
-      hist_data[idx_bin11+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin12 = two * (static_cast<uint32_t>(gr_index_local[11]) +
-                                      offsets[11]);
-
-      hist_data[idx_bin12]   += pgh[idx_gh];
-      hist_data[idx_bin12+1] += pgh[idx_gh+1];
-
-      const uint32_t idx_bin13 = two * (static_cast<uint32_t>(gr_index_local[12]) +
-                                      offsets[12]);
-
-      hist_data[idx_bin13]   += pgh[idx_gh];
-      hist_data[idx_bin13+1] += pgh[idx_gh+1];
-
-
-    //for (size_t j = 0; j < n_features; ++j) {
-    //  const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[j]) +
-    //                                  offsets[j]);
-//
-    //  hist_data[idx_bin]   += pgh[idx_gh];
-    //  hist_data[idx_bin+1] += pgh[idx_gh+1];
-    //}
+    if (nb >= 1) {
+      UNR(0, 0);
+      UNR(1, 0);
+      UNR(2, 0);
+      UNR(3, 0);
+      UNR(4, 0);
+      UNR(5, 0);
+      UNR(6, 0);
+      UNR(7, 0);
+      UNR(8, 0);
+      UNR(9, 0);
+      UNR(10, 0);
+      UNR(11, 0);
+      UNR(12, 0);
+    }
+    for (size_t ib = 1; ib < nb; ++ib) {
+      UNR(0, ib);
+      UNR(1, ib);
+      UNR(2, ib);
+      UNR(3, ib);
+      UNR(4, ib);
+      UNR(5, ib);
+      UNR(6, ib);
+      UNR(7, ib);
+      UNR(8, ib);
+      UNR(9, ib);
+      UNR(10, ib);
+      UNR(11, ib);
+      UNR(12, ib);
+    }
+    for(size_t j = n_features - tail_size;  j < n_features; ++j) {
+        UNR_TAIL(j);
+    }
   }
 }
 
