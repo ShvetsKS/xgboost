@@ -168,6 +168,10 @@ class QuantileHistMaker: public TreeUpdater {
   template <typename GradientSumT>
   friend class DistributedHistRowsAdder;
 
+  std::vector<uint8_t> numa1_bins;
+  std::vector<uint8_t> numa2_bins;
+  std::vector<std::vector<double>> histograms_;
+
   CPUHistMakerTrainParam hist_maker_param_;
   // training parameter
   TrainParam param_;
@@ -219,18 +223,18 @@ class QuantileHistMaker: public TreeUpdater {
                         const ColumnMatrix& column_matrix,
                         HostDeviceVector<GradientPair>* gpair,
                         DMatrix* p_fmat,
-                        RegTree* p_tree);
+                        RegTree* p_tree, const uint8_t* numa1, const uint8_t* numa2, std::vector<std::vector<double>>* histograms);
 
     inline void BuildHist(const std::vector<GradientPair>& gpair,
                           const RowSetCollection::Elem row_indices,
                           const GHistIndexMatrix& gmat,
                           const GHistIndexBlockMatrix& gmatb,
-                          GHistRowT hist) {
+                          GHistRowT hist, const uint8_t* numa) {
       if (param_.enable_feature_grouping > 0) {
         hist_builder_.BuildBlockHist(gpair, row_indices, gmatb, hist);
       } else {
         hist_builder_.BuildHist(gpair, row_indices, gmat, hist,
-                                data_layout_ != DataLayout::kSparseData);
+                                data_layout_ != DataLayout::kSparseData, numa);
       }
     }
 
@@ -335,12 +339,13 @@ class QuantileHistMaker: public TreeUpdater {
                              const ColumnMatrix &column_matrix,
                              DMatrix *p_fmat,
                              RegTree *p_tree,
-                             const std::vector<GradientPair> &gpair_h);
+                             const std::vector<GradientPair> &gpair_h,const uint8_t* numa1, const uint8_t* numa2, std::vector<std::vector<double>>* histograms = nullptr);
 
     void BuildLocalHistograms(const GHistIndexMatrix &gmat,
                               const GHistIndexBlockMatrix &gmatb,
                               RegTree *p_tree,
-                              const std::vector<GradientPair> &gpair_h, int depth = 0);
+                              const std::vector<GradientPair> &gpair_h, int depth = 0,
+                              const uint8_t* numa1 = nullptr, const uint8_t* numa2 = nullptr, std::vector<std::vector<double>>* histograms = nullptr);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,

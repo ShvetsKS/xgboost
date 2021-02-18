@@ -544,11 +544,11 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                           const RowSetCollection::Elem row_indices,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<FPType> hist) {
+                          GHistRow<FPType> hist, const uint8_t* numa) {
   const size_t size = row_indices.Size();
   const size_t* rid = row_indices.begin;
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
-  const BinIdxType* gradient_index = gmat.index.data<BinIdxType>();
+  const uint8_t* gradient_index = numa;//gmat.index.data<BinIdxType>();
   const uint32_t* offsets = gmat.index.Offset();
   FPType* hist_data = reinterpret_cast<FPType*>(hist.data());
   const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
@@ -569,7 +569,7 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
         PREFETCH_READ_T0(gradient_index + j);
       }
     }
-    const BinIdxType* gr_index_local = gradient_index + icol_start;
+    const uint8_t* gr_index_local = gradient_index + icol_start;
       const uint32_t idx_bin1 = two * (static_cast<uint32_t>(gr_index_local[0]) +
                                       offsets[0]);
 
@@ -702,12 +702,12 @@ void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
 template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
                      const RowSetCollection::Elem row_indices,
-                     const GHistIndexMatrix& gmat, GHistRow<FPType> hist, bool isDense) {
+                     const GHistIndexMatrix& gmat, GHistRow<FPType> hist, bool isDense, const uint8_t* numa) {
   if (isDense) {
     const size_t* row_ptr =  gmat.row_ptr.data();
     const size_t n_features = row_ptr[row_indices.begin[0]+1] - row_ptr[row_indices.begin[0]];
     BuildHistDenseKernel<FPType, do_prefetch, BinIdxType>(gpair, row_indices,
-                                                       gmat, n_features, hist);
+                                                       gmat, n_features, hist, numa);
   } else {
     BuildHistSparseKernel<FPType, do_prefetch>(gpair, row_indices,
                                                         gmat, hist);
@@ -717,20 +717,20 @@ void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
 template<typename FPType, bool do_prefetch>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
                      const RowSetCollection::Elem row_indices,
-                     const GHistIndexMatrix& gmat, const bool isDense, GHistRow<FPType> hist) {
+                     const GHistIndexMatrix& gmat, const bool isDense, GHistRow<FPType> hist, const uint8_t* numa) {
   const bool is_dense = row_indices.Size() && isDense;
   switch (gmat.index.GetBinTypeSize()) {
     case kUint8BinsTypeSize:
       BuildHistDispatchKernel<FPType, do_prefetch, uint8_t>(gpair, row_indices,
-                                                            gmat, hist, is_dense);
+                                                            gmat, hist, is_dense, numa);
       break;
     case kUint16BinsTypeSize:
       BuildHistDispatchKernel<FPType, do_prefetch, uint16_t>(gpair, row_indices,
-                                                             gmat, hist, is_dense);
+                                                             gmat, hist, is_dense, numa);
       break;
     case kUint32BinsTypeSize:
       BuildHistDispatchKernel<FPType, do_prefetch, uint32_t>(gpair, row_indices,
-                                                             gmat, hist, is_dense);
+                                                             gmat, hist, is_dense, numa);
       break;
     default:
       CHECK(false);  // no default behavior
@@ -741,7 +741,7 @@ template <typename GradientSumT>
 void GHistBuilder<GradientSumT>::BuildHist(
     const std::vector<GradientPair> &gpair,
     const RowSetCollection::Elem row_indices, const GHistIndexMatrix &gmat,
-    GHistRowT hist, bool isDense) {
+    GHistRowT hist, bool isDense, const uint8_t* numa) {
   const size_t nrows = row_indices.Size();
   const size_t no_prefetch_size = Prefetch::NoPrefetchSize(nrows);
 
@@ -750,14 +750,14 @@ void GHistBuilder<GradientSumT>::BuildHist(
 
   if (contiguousBlock) {
     // contiguous memory access, built-in HW prefetching is enough
-    BuildHistKernel<GradientSumT, false>(gpair, row_indices, gmat, isDense, hist);
+    BuildHistKernel<GradientSumT, false>(gpair, row_indices, gmat, isDense, hist, numa);
   } else {
     const RowSetCollection::Elem span1(row_indices.begin, row_indices.end - no_prefetch_size);
     const RowSetCollection::Elem span2(row_indices.end - no_prefetch_size, row_indices.end);
 
-    BuildHistKernel<GradientSumT, true>(gpair, span1, gmat, isDense, hist);
+    BuildHistKernel<GradientSumT, true>(gpair, span1, gmat, isDense, hist, numa);
     // no prefetching to avoid loading extra memory
-    BuildHistKernel<GradientSumT, false>(gpair, span2, gmat, isDense, hist);
+    BuildHistKernel<GradientSumT, false>(gpair, span2, gmat, isDense, hist, numa);
   }
 }
 template
@@ -765,13 +765,13 @@ void GHistBuilder<float>::BuildHist(const std::vector<GradientPair>& gpair,
                              const RowSetCollection::Elem row_indices,
                              const GHistIndexMatrix& gmat,
                              GHistRow<float> hist,
-                             bool isDense);
+                             bool isDense, const uint8_t* numa);
 template
 void GHistBuilder<double>::BuildHist(const std::vector<GradientPair>& gpair,
                              const RowSetCollection::Elem row_indices,
                              const GHistIndexMatrix& gmat,
                              GHistRow<double> hist,
-                             bool isDense);
+                             bool isDense, const uint8_t* numa);
 
 template<typename GradientSumT>
 void GHistBuilder<GradientSumT>::BuildBlockHist(const std::vector<GradientPair>& gpair,

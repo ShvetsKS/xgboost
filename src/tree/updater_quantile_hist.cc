@@ -77,7 +77,7 @@ void QuantileHistMaker::CallBuilderUpdate(const std::unique_ptr<Builder<Gradient
                                           DMatrix *dmat,
                                           const std::vector<RegTree *> &trees) {
   for (auto tree : trees) {
-    builder->Update(gmat_, gmatb_, column_matrix_, gpair, dmat, tree);
+    builder->Update(gmat_, gmatb_, column_matrix_, gpair, dmat, tree, numa1_bins.data(), numa2_bins.data(), &histograms_);
   }
 }
 void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
@@ -94,6 +94,31 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
     // A proper solution is puting cut matrix in DMatrix, see:
     // https://github.com/dmlc/xgboost/issues/5143
     is_gmat_initialized_ = true;
+    const size_t n_threads = omp_get_max_threads();
+    //    std::cout << "\nn_threads: " << n_threads << "\n";
+    const size_t n_elements = gmat_.index.Size();
+    const uint8_t* data = gmat_.index.data<uint8_t>();
+    const size_t n_bins = gmat_.cut.Ptrs().back();
+    histograms_.resize(n_threads);
+    #pragma omp parallel num_threads(n_threads)
+    {
+      const size_t tid = omp_get_thread_num();
+      if (tid == 0) {
+        //std::cout << "\n\nNUMA1 was initiated!\n\n";
+        this->numa1_bins.resize(n_elements,0);
+        for (size_t i = 0; i < n_elements; ++i) {
+          this->numa1_bins[i] = data[i];
+        }
+      }
+      if (tid == (n_threads - 1)) {
+        //std::cout << "\n\nNUMA2 was initiated!\n\n";
+        this->numa2_bins.resize(n_elements,0);
+        for (size_t i = 0; i < n_elements; ++i) {
+          this->numa2_bins[i] = data[i];
+        }
+      }
+      histograms_[tid].resize(n_bins*(1 << param_.max_depth), 0);
+    }
   }
   // rescale learning rate according to size of trees
   float lr = param_.learning_rate;
@@ -148,7 +173,7 @@ void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
     const auto& entry = builder->nodes_for_explicit_hist_build_[node];
     auto this_hist = builder->hist_[entry.nid];
     // Merging histograms from each thread into once
-    builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
+    //builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
 
     if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
       const size_t parent_id = (*p_tree)[entry.nid].Parent();
@@ -330,12 +355,12 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     const GHistIndexMatrix &gmat,
     const GHistIndexBlockMatrix &gmatb,
     RegTree *p_tree,
-    const std::vector<GradientPair> &gpair_h, int depth) {
+    const std::vector<GradientPair> &gpair_h, int depth, const uint8_t* numa1, const uint8_t* numa2, std::vector<std::vector<double>>* histograms) {
       std::string timer_name = "BuildLocalHistograms:";
       timer_name += std::to_string(depth);
 
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
-
+  const size_t n_bins = gmat.cut.Ptrs().back();
 static size_t summs[] = {0,0,0,0,0,0,0,0,0};
 static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
 
@@ -365,7 +390,23 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
   }
 
   hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
+  int nthreads = this->nthread_;
+  const size_t num_blocks_in_space = space.Size();
+  nthreads = std::min(nthreads, omp_get_max_threads());
+  nthreads = std::max(nthreads, 1);
+
+#pragma omp parallel num_threads(nthreads)
+{
+  const size_t tid = omp_get_thread_num();
+  for (size_t i = 0; i < n_nodes; ++i) {
+    for (size_t bin_id = 0; bin_id <  n_bins*2; ++bin_id) {
+      (*histograms)[tid][2*i*n_bins + bin_id] = 0;
+    }
+  }
+}
+
   builder_monitor_.Start(timer_name);
+
 
 //  // Parallel processing by nodes and data in each node
 //  common::ParallelFor2d(space, this->nthread_, [&](size_t nid_in_set, common::Range1d r) {
@@ -380,20 +421,18 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
 //  });
 
 
-  int nthreads = this->nthread_;
-  const size_t num_blocks_in_space = space.Size();
-  nthreads = std::min(nthreads, omp_get_max_threads());
-  nthreads = std::max(nthreads, 1);
+
 
 auto func = [&](size_t nid_in_set, common::Range1d r) {
     const auto tid = static_cast<unsigned>(omp_get_thread_num());
+      const uint8_t* numa = tid < nthreads/2 ? numa1 : numa2;
     const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
 
     auto start_of_row_set = row_set_collection_[nid].begin;
     auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
                                       start_of_row_set + r.end(),
                                       nid);
-    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set));
+    BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set), gmat.index.data<uint8_t>());
   };
 
 std::vector<std::vector<uint64_t>> treads_times(nthreads);
@@ -404,6 +443,7 @@ const uint64_t t1 = get_time();
 /*    omp_exc.Run(
         [&treads_times](size_t num_blocks_in_space, const common::BlockedSpace2d& space, int nthreads, auto& func) {*/
       size_t tid = omp_get_thread_num();
+      const uint8_t* numa = tid < nthreads/2 ? numa1 : numa2;
       treads_times[tid].resize(1,0);
       uint64_t& local_time = treads_times[tid][0];
       //const uint64_t t1 = get_time();
@@ -417,12 +457,12 @@ const uint64_t t1 = get_time();
         size_t nid_in_set = space.GetFirstDimension(i); common::Range1d r = space.GetRange(i);
         //const auto tid = static_cast<unsigned>(omp_get_thread_num());
         const int32_t nid = nodes_for_explicit_hist_build_[nid_in_set].nid;
-
         auto start_of_row_set = row_set_collection_[nid].begin;
         auto rid_set = RowSetCollection::Elem(start_of_row_set + r.begin(),
                                               start_of_row_set + r.end(),
                                               nid);
-        BuildHist(gpair_h, rid_set, gmat, gmatb, hist_buffer_.GetInitializedHist(tid, nid_in_set));
+        GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data() + 2*nid_in_set*n_bins), n_bins);
+        BuildHist(gpair_h, rid_set, gmat, gmatb, local_hist, numa);
       }
       local_time = get_time();
 //    }, num_blocks_in_space, space, nthreads, func);
@@ -454,6 +494,20 @@ if(++n_call == N_CALL/5) {
   }
 }
   builder_monitor_.Stop(timer_name);
+
+  for (size_t i = 0; i < n_nodes; ++i) {
+    const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
+    //target_hists[i] = hist_[nid];
+    GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
+    for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
+      dest_hist[bin_id] = (*histograms)[0][2*i*n_bins + bin_id];
+    }
+    for (size_t tid = 1; tid < nthreads; ++tid) {
+      for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
+        dest_hist[bin_id] += (*histograms)[tid][2*i*n_bins + bin_id];
+      }
+    }
+  }
 
 }
 
@@ -583,7 +637,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
   const ColumnMatrix &column_matrix,
   DMatrix *p_fmat,
   RegTree *p_tree,
-  const std::vector<GradientPair> &gpair_h) {
+  const std::vector<GradientPair> &gpair_h, const uint8_t* numa1, const uint8_t* numa2, std::vector<std::vector<double>>* histograms) {
   unsigned timestamp = 0;
   int num_leaves = 0;
 
@@ -598,7 +652,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
     SplitSiblings(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth);
+    BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth, numa1, numa2, histograms);
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
 
@@ -698,7 +752,7 @@ template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::Update(
     const GHistIndexMatrix &gmat, const GHistIndexBlockMatrix &gmatb,
     const ColumnMatrix &column_matrix, HostDeviceVector<GradientPair> *gpair,
-    DMatrix *p_fmat, RegTree *p_tree) {
+    DMatrix *p_fmat, RegTree *p_tree, const uint8_t* numa1, const uint8_t* numa2, std::vector<std::vector<double>>* histograms) {
   builder_monitor_.Start("Update");
 
   const std::vector<GradientPair>& gpair_h = gpair->ConstHostVector();
@@ -712,7 +766,7 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
     ExpandWithLossGuide(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
   } else {
     N_CALL = (param_.max_depth + 1) * 500;
-    ExpandWithDepthWise(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
+    ExpandWithDepthWise(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h, numa1, numa2, histograms);
   }
 
   for (int nid = 0; nid < p_tree->param.num_nodes; ++nid) {
