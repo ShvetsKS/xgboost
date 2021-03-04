@@ -583,7 +583,7 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
       }
     }
     const uint8_t* gr_index_local = gradient_index + icol_start;
-    if (nb >= 1) {
+   // if (nb >= 1) {
       UNR(0, 0);
       UNR(1, 0);
       UNR(2, 0);
@@ -597,25 +597,25 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
       UNR(10, 0);
       UNR(11, 0);
       UNR(12, 0);
-    }
-    for (size_t ib = 1; ib < nb; ++ib) {
-      UNR(0, ib);
-      UNR(1, ib);
-      UNR(2, ib);
-      UNR(3, ib);
-      UNR(4, ib);
-      UNR(5, ib);
-      UNR(6, ib);
-      UNR(7, ib);
-      UNR(8, ib);
-      UNR(9, ib);
-      UNR(10, ib);
-      UNR(11, ib);
-      UNR(12, ib);
-    }
-    for(size_t j = n_features - tail_size;  j < n_features; ++j) {
-        UNR_TAIL(j);
-    }
+    //}
+    // for (size_t ib = 1; ib < nb; ++ib) {
+    //   UNR(0, ib);
+    //   UNR(1, ib);
+    //   UNR(2, ib);
+    //   UNR(3, ib);
+    //   UNR(4, ib);
+    //   UNR(5, ib);
+    //   UNR(6, ib);
+    //   UNR(7, ib);
+    //   UNR(8, ib);
+    //   UNR(9, ib);
+    //   UNR(10, ib);
+    //   UNR(11, ib);
+    //   UNR(12, ib);
+    // }
+    // for(size_t j = n_features - tail_size;  j < n_features; ++j) {
+    //     UNR_TAIL(j);
+    // }
   }
 }
 

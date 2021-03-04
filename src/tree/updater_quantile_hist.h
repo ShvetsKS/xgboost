@@ -299,7 +299,7 @@ class QuantileHistMaker: public TreeUpdater {
                         const GHistIndexMatrix& gmat,
                         const ColumnMatrix& column_matrix,
                         const HistCollection<GradientSumT>& hist,
-                        RegTree* p_tree, int depth = 0);
+                        RegTree* p_tree, int depth = 0, std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr);
 
     template <typename BinIdxType, bool is_root>
     void PartitionKernel(const size_t node_in_set, const size_t nid, common::Range1d range,
@@ -345,7 +345,8 @@ class QuantileHistMaker: public TreeUpdater {
                               const GHistIndexBlockMatrix &gmatb,
                               RegTree *p_tree,
                               const std::vector<GradientPair> &gpair_h, int depth = 0,
-                              const uint8_t* numa1 = nullptr, const uint8_t* numa2 = nullptr, std::vector<std::vector<double>>* histograms = nullptr);
+                              const uint8_t* numa1 = nullptr, const uint8_t* numa2 = nullptr, std::vector<std::vector<double>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
+                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,
@@ -377,7 +378,7 @@ class QuantileHistMaker: public TreeUpdater {
                                 int *num_leaves,
                                 int depth,
                                 unsigned *timestamp,
-                                std::vector<ExpandEntry> *temp_qexpand_depth);
+                                std::vector<ExpandEntry> *temp_qexpand_depth, std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr);
 
     void AddSplitsToTree(
               const GHistIndexMatrix &gmat,
