@@ -117,7 +117,7 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
           this->numa2_bins[i] = data[i];
         }
       }
-      histograms_[tid].resize(n_bins*(1 << param_.max_depth), 0);
+      histograms_[tid].resize(n_bins*(1 << (param_.max_depth + 1)), 0);
     }
   }
   // rescale learning rate according to size of trees
@@ -499,7 +499,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
   const size_t n_features = gmat.cut.Ptrs().size() - 1;
 static size_t summs[] = {0,0,0,0,0,0,0,0,0};
 static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
-std::cout << "sp: " << (*split_conditions)[0] << ":" <<  (*split_ind)[0] << "\n";
+//std::cout << "sp: " << (*split_conditions)[0] << ":" <<  (*split_ind)[0] << "\n";
 //size_t summ_size = 0;
 //size_t dist = 0;
 //
@@ -514,7 +514,7 @@ std::cout << "sp: " << (*split_conditions)[0] << ":" <<  (*split_ind)[0] << "\n"
 //summs[depth] += summ_size;
 //average_dist[depth] += dist/(summ_size-n_nodes);
   // create space of size (# rows in each node)
-  std::cout << "gmat.row_ptr.size() - 1: " << gmat.row_ptr.size() - 1 << "\n";
+  //std::cout << "gmat.row_ptr.size() - 1: " << gmat.row_ptr.size() - 1 << "\n";
   common::BlockedSpace2d space(1, [&](size_t node) {
     //const int32_t nid = nodes_for_explicit_hist_build_[node].nid;
     //return row_set_collection_[nid].Size();
@@ -577,6 +577,7 @@ auto func = [&](size_t nid_in_set, common::Range1d r) {
 
 std::vector<std::vector<uint64_t>> treads_times(nthreads);
 const uint64_t t1 = get_time();
+
 //  dmlc::OMPException omp_exc;
 //std::cout << "\nstarted build hist!!!\n" << std::endl;
   //for(size_t tid = 0; tid < nthreads; ++tid)
@@ -650,7 +651,8 @@ if(++n_call == N_CALL/5) {
   }
 }
   builder_monitor_.Stop(timer_name);
-std::cout << "qexpand_depth_wise_.size():" << qexpand_depth_wise_.size() << "\n";
+
+//std::cout << "qexpand_depth_wise_.size():" << qexpand_depth_wise_.size() << "\n";
   for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
    const int32_t nid = qexpand_depth_wise_[i].nid;
    //target_hists[i] = hist_[nid];
@@ -702,7 +704,7 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
           unsigned *timestamp,
           std::vector<ExpandEntry>* nodes_for_apply_split,
           std::vector<ExpandEntry>* temp_qexpand_depth) {
-            std::cout << "\nAddSplitsToTree: ";
+        //    std::cout << "\nAddSplitsToTree: ";
   auto evaluator = tree_evaluator_.GetEvaluator();
   size_t i = 0;
   for (auto const& entry : qexpand_depth_wise_) {
@@ -711,10 +713,10 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
     if (snode_[nid].best.loss_chg < kRtEps ||
         (param_.max_depth > 0 && depth == param_.max_depth) ||
         (param_.max_leaves > 0 && (*num_leaves) == param_.max_leaves)) {
-      std::cout << " construct leaf :(" << i << ") ";
+     // std::cout << " construct leaf :(" << i << ") ";
       (*p_tree)[nid].SetLeaf(snode_[nid].weight * param_.learning_rate);
     } else {
-      std::cout << " construct split :{" << i << ") ";
+    //  std::cout << " construct split :{" << i << ") ";
       nodes_for_apply_split->push_back(entry);
 
       NodeEntry& e = snode_[nid];
@@ -749,16 +751,19 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
     int depth,
     unsigned *timestamp,
     std::vector<ExpandEntry> *temp_qexpand_depth, std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind) {
-std::cout << "\nEvaluateSplits start \n";
+//std::cout << "!EvaluateAndApplySplits start " << std::endl;
+
+
+//std::cout << "\nEvaluateSplits start " << std::endl;
   EvaluateSplits(qexpand_depth_wise_, gmat, hist_, *p_tree);
-std::cout << "EvaluateSplits finished \n";
+//std::cout << "EvaluateSplits finished " << std::endl;
 
   std::vector<ExpandEntry> nodes_for_apply_split;
   AddSplitsToTree(gmat, p_tree, num_leaves, depth, timestamp,
                   &nodes_for_apply_split, temp_qexpand_depth);
-std::cout << "AddSplitsToTree finished \n";
+//std::cout << "AddSplitsToTree finished " << std::endl;
   ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree, depth, split_conditions, split_ind);
-std::cout << "ApplySplit finished \n";
+//std::cout << "ApplySplit finished " << std::endl;
 }
 
 // Split nodes to 2 sets depending on amount of rows in each node
@@ -819,36 +824,45 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
     std::vector<ExpandEntry> temp_qexpand_depth;
     SplitSiblings(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
-    std::cout << "SplitSiblings finished!" << std::endl;
+    //std::cout << "SplitSiblings finished!" << std::endl;
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-    std::cout << "AddHistRows finished!" << std::endl;
+    //std::cout << "AddHistRows finished!" << std::endl;
     BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth, numa1, numa2, histograms, node_ids.data(), &split_values, &split_indexs);
-    std::cout << "BuildLocalHistograms finished!" << std::endl;
+
+    //std::cout << "BuildLocalHistograms finished!" << std::endl;
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
-    std::cout << "SyncHistograms finished!" << std::endl;
+    // for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
+    //     const int32_t nid = qexpand_depth_wise_[i].nid;
+    //     std::cout << i << ":" << nid << " : ";
+    //     for (size_t j = 0; j < hist_[nid].size(); ++j)
+    //       std::cout << hist_[nid][j] << "  ";
+    //     std::cout << std::endl;
+    // }
+
+    //std::cout << "SyncHistograms finished!" << std::endl;
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
-    std::cout << "BuildNodeStats finished!" << std::endl;
+    //std::cout << "BuildNodeStats finished!" << std::endl;
 
     EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
                    &temp_qexpand_depth, &split_values, &split_indexs);
-    std::cout << "\nEvaluateAndApplySplits finished! " << std::endl;
+    //std::cout << "\nEvaluateAndApplySplits finished! " << std::endl;
     // clean up
     qexpand_depth_wise_.clear();
-    std::cout << "    qexpand_depth_wise_.clear() finished! " << std::endl;
+    //std::cout << "    qexpand_depth_wise_.clear() finished! " << std::endl;
     nodes_for_subtraction_trick_.clear();
-    std::cout << "    nodes_for_subtraction_trick_.clear(); finished! " << std::endl;
+    //std::cout << "    nodes_for_subtraction_trick_.clear(); finished! " << std::endl;
     nodes_for_explicit_hist_build_.clear();
-    std::cout << "    nodes_for_explicit_hist_build_.clear(); finished! " << std::endl;
+    //std::cout << "    nodes_for_explicit_hist_build_.clear(); finished! " << std::endl;
     if (temp_qexpand_depth.empty()) {
       break;
     } else {
       qexpand_depth_wise_ = temp_qexpand_depth;
       temp_qexpand_depth.clear();
     }
-    std::cout << "    temp_qexpand_depth.clear(); finished! " << std::endl;
-    std::cout << "\nIteration compleated" << std::endl;
+    //std::cout << "    temp_qexpand_depth.clear(); finished! " << std::endl;
+    //std::cout << "\nIteration compleated" << std::endl;
   }
-    std::cout << "\n ExpandWithDepthWise compleated" << std::endl;
+    //std::cout << "\n ExpandWithDepthWise compleated" << std::endl;
 }
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
@@ -954,7 +968,7 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
     p_tree->Stat(nid).sum_hess = static_cast<float>(snode_[nid].stats.GetHess());
   }
   pruner_->Update(gpair, p_fmat, std::vector<RegTree*>{p_tree});
-
+//std::cout << "\n Update finished! \n";
   builder_monitor_.Stop("Update");
 }
 
@@ -1249,18 +1263,18 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateSplits(
                                                const HistCollection<GradientSumT>& hist,
                                                const RegTree& tree) {
   builder_monitor_.Start("EvaluateSplits");
-std::cout << "EvaluateSplits 1 \n";
+//std::cout << "EvaluateSplits 1 \n";
   const size_t n_nodes_in_set = nodes_set.size();
   const size_t nthread = std::max(1, this->nthread_);
-std::cout << "EvaluateSplits 1.1" << std::endl ;
+//std::cout << "EvaluateSplits 1.1" << std::endl ;
   //best_split_tloc_.resize(224);
 
   using FeatureSetType = std::shared_ptr<HostDeviceVector<bst_feature_t>>;
-std::cout << "EvaluateSplits 1.2 " << std::endl ;
+//std::cout << "EvaluateSplits 1.2 " << std::endl ;
   std::vector<FeatureSetType> features_sets(n_nodes_in_set);
-std::cout << "EvaluateSplits 1.3 " << nthread * n_nodes_in_set << std::endl ;
+//std::cout << "EvaluateSplits 1.3 " << nthread * n_nodes_in_set << std::endl ;
   best_split_tloc_.resize(nthread * n_nodes_in_set);
-std::cout << "EvaluateSplits 2 " << std::endl ;
+//std::cout << "EvaluateSplits 2 " << std::endl ;
 
   // Generate feature set for each tree node
   for (size_t nid_in_set = 0; nid_in_set < n_nodes_in_set; ++nid_in_set) {
@@ -1271,7 +1285,7 @@ std::cout << "EvaluateSplits 2 " << std::endl ;
       best_split_tloc_[nthread*nid_in_set + tid] = snode_[nid].best;
     }
   }
-std::cout << "EvaluateSplits 3 \n";
+//std::cout << "EvaluateSplits 3 \n";
 
   // Create 2D space (# of nodes to process x # of features to process)
   // to process them in parallel
@@ -1279,7 +1293,7 @@ std::cout << "EvaluateSplits 3 \n";
   common::BlockedSpace2d space(n_nodes_in_set, [&](size_t nid_in_set) {
       return features_sets[nid_in_set]->Size();
   }, grain_size);
-std::cout << "EvaluateSplits 4 \n";
+//std::cout << "EvaluateSplits 4 \n";
 
   auto evaluator = tree_evaluator_.GetEvaluator();
   // Start parallel enumeration for all tree nodes in the set and all features
@@ -1303,7 +1317,7 @@ std::cout << "EvaluateSplits 4 \n";
       }
     }
   });
-std::cout << "EvaluateSplits 5 \n";
+//std::cout << "EvaluateSplits 5 \n";
 
   // Find Best Split across threads for each node in nodes set
   for (unsigned nid_in_set = 0; nid_in_set < n_nodes_in_set; ++nid_in_set) {
@@ -1312,7 +1326,7 @@ std::cout << "EvaluateSplits 5 \n";
       snode_[nid].best.Update(best_split_tloc_[nthread*nid_in_set + tid]);
     }
   }
-std::cout << "EvaluateSplits 6 \n";
+//std::cout << "EvaluateSplits 6 \n";
 
   builder_monitor_.Stop("EvaluateSplits");
 }
@@ -1536,9 +1550,9 @@ void QuantileHistMaker::Builder<GradientSumT>::FindSplitConditions(
                                                      const GHistIndexMatrix& gmat,
                                                      std::vector<int32_t>* split_conditions) {
   const size_t n_nodes = nodes.size();
-  std::cout<< "n_nodes: " << n_nodes << "\n";
+  //std::cout<< "n_nodes: " << n_nodes << "\n";
   (*split_conditions)[0] = n_nodes;
-  std::cout<< "(*split_conditions)[0]: " << (*split_conditions)[0] << "\n";
+  //std::cout<< "(*split_conditions)[0]: " << (*split_conditions)[0] << "\n";
   //split_conditions->resize(n_nodes);
 
   for (size_t i = 0; i < nodes.size(); ++i) {
@@ -1586,17 +1600,17 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
   builder_monitor_.Start("ApplySplit");
   // 1. Find split condition for each split
   const size_t n_nodes = nodes.size();
-  std::cout << "\nn_nodes: " << n_nodes << "\n";
+  //std::cout << "\nn_nodes: " << n_nodes << "\n";
   //std::vector<int32_t> split_conditions;
   FindSplitConditions(nodes, *p_tree, gmat, split_conditions);
-  std::cout << "\n FindSplitConditions finished \n";
+  //std::cout << "\n FindSplitConditions finished \n";
 (*split_ind)[0] = n_nodes;
 for (size_t i = 0; i < n_nodes; ++i) {
     const int32_t nid = nodes[i].nid;
     const bst_uint fid = (*p_tree)[nid].SplitIndex();
     (*split_ind)[i + 1] = fid;
 }
-  std::cout << "\n ApplySplit finished \n";
+  //std::cout << "\n ApplySplit finished \n";
 //   // 2.1 Create a blocked space of size SUM(samples in each node)
 //   common::BlockedSpace2d space(n_nodes, [&](size_t node_in_set) {
 //     int32_t nid = nodes[node_in_set].nid;
