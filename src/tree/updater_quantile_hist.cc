@@ -255,19 +255,24 @@ void BatchHistRowsAdder<GradientSumT>::AddHistRows(BuilderT *builder,
                                                    int *starting_index,
                                                    int *sync_count,
                                                    RegTree *) {
+std::cout << "\nAddHistRows0 " << std::endl;
   builder->builder_monitor_.Start("AddHistRows");
-
+std::cout << "\nAddHistRows1" << std::endl;
   for (auto const& entry : builder->nodes_for_explicit_hist_build_) {
     int nid = entry.nid;
     builder->hist_.AddHistRow(nid);
     (*starting_index) = std::min(nid, (*starting_index));
   }
   (*sync_count) = builder->nodes_for_explicit_hist_build_.size();
+std::cout << "\nAddHistRows2" << std::endl;
 
   for (auto const& node : builder->nodes_for_subtraction_trick_) {
     builder->hist_.AddHistRow(node.nid);
   }
+std::cout << "\nAddHistRows3" << std::endl;
+
   builder->hist_.AllocateAllData();
+std::cout << "\nAddHistRows4" << std::endl;
   builder->builder_monitor_.Stop("AddHistRows");
 }
 
@@ -499,7 +504,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
   const size_t n_features = gmat.cut.Ptrs().size() - 1;
 static size_t summs[] = {0,0,0,0,0,0,0,0,0};
 static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
-//std::cout << "sp: " << (*split_conditions)[0] << ":" <<  (*split_ind)[0] << "\n";
+std::cout << "sp: " << (*split_conditions)[0] << ":" <<  (*split_ind)[0] << std::endl;
 //size_t summ_size = 0;
 //size_t dist = 0;
 //
@@ -520,7 +525,7 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
     //return row_set_collection_[nid].Size();
     return gmat.row_ptr.size() - 1;
   }, 4096);
-
+std::cout << "!1sp: " << std::endl;
   std::vector<GHistRowT> target_hists(n_nodes);
   for (size_t i = 0; i < n_nodes; ++i) {
     const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
@@ -528,12 +533,14 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
 //    const bst_uint fid = tree[nid].SplitIndex();
 //    split_inds[i] = fid;
   }
+std::cout << "!2sp: " << std::endl;
 
   hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
   int nthreads = this->nthread_;
   const size_t num_blocks_in_space = space.Size();
   nthreads = std::min(nthreads, omp_get_max_threads());
   nthreads = std::max(nthreads, 1);
+std::cout << "!3sp: " << std::endl;
 
 #pragma omp parallel num_threads(nthreads)
 {
@@ -544,6 +551,7 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
    }
  }
 }
+std::cout << "!4sp: " << std::endl;
 
   builder_monitor_.Start(timer_name);
 
@@ -579,7 +587,7 @@ std::vector<std::vector<uint64_t>> treads_times(nthreads);
 const uint64_t t1 = get_time();
 
 //  dmlc::OMPException omp_exc;
-//std::cout << "\nstarted build hist!!!\n" << std::endl;
+std::cout << "\nstarted build hist!!!\n" << std::endl;
   //for(size_t tid = 0; tid < nthreads; ++tid)
 #pragma omp parallel num_threads(nthreads)
   {
@@ -622,7 +630,7 @@ const uint64_t t1 = get_time();
       local_time = get_time();
 //    }, num_blocks_in_space, space, nthreads, func);
   }
-//std::cout << "\nFinished build hist!!!\n" << std::endl;
+std::cout << "\nFinished build hist!!!\n" << std::endl;
 
 //  omp_exc.Rethrow();
 
@@ -652,7 +660,7 @@ if(++n_call == N_CALL/5) {
 }
   builder_monitor_.Stop(timer_name);
 
-//std::cout << "qexpand_depth_wise_.size():" << qexpand_depth_wise_.size() << "\n";
+std::cout << "qexpand_depth_wise_.size():" << qexpand_depth_wise_.size() << std::endl;
   for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
    const int32_t nid = qexpand_depth_wise_[i].nid;
    //target_hists[i] = hist_[nid];
@@ -815,21 +823,22 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
   qexpand_depth_wise_.emplace_back(ExpandEntry(ExpandEntry::kRootNid, ExpandEntry::kEmptyNid,
       p_tree->GetDepth(ExpandEntry::kRootNid), 0.0, timestamp++));
   ++num_leaves;
-  std::vector<uint16_t> node_ids(row_set_collection_[0].Size(),0);
+  node_ids.resize(row_set_collection_[0].Size(),0);
   std::vector<bst_uint> split_indexs(1 << param_.max_depth + 1);
   std::vector<int32_t> split_values(1 << param_.max_depth + 1);
   for (int depth = 0; depth < param_.max_depth + 1; depth++) {
     int starting_index = std::numeric_limits<int>::max();
     int sync_count = 0;
     std::vector<ExpandEntry> temp_qexpand_depth;
+    std::cout << "SplitSiblings started!" << std::endl;
     SplitSiblings(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
-    //std::cout << "SplitSiblings finished!" << std::endl;
+    std::cout << "SplitSiblings finished!!!" << std::endl;
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-    //std::cout << "AddHistRows finished!" << std::endl;
+    std::cout << "AddHistRows finished!" << std::endl;
     BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth, numa1, numa2, histograms, node_ids.data(), &split_values, &split_indexs);
 
-    //std::cout << "BuildLocalHistograms finished!" << std::endl;
+    std::cout << "BuildLocalHistograms finished!" << std::endl;
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
     // for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
     //     const int32_t nid = qexpand_depth_wise_[i].nid;
@@ -841,13 +850,13 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
 
     //std::cout << "SyncHistograms finished!" << std::endl;
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
-    //std::cout << "BuildNodeStats finished!" << std::endl;
+    std::cout << "BuildNodeStats finished!" << std::endl;
 
     EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
                    &temp_qexpand_depth, &split_values, &split_indexs);
-    //std::cout << "\nEvaluateAndApplySplits finished! " << std::endl;
+    std::cout << "\nEvaluateAndApplySplits finished! " << std::endl;
     // clean up
-    qexpand_depth_wise_.clear();
+    //qexpand_depth_wise_.clear();
     //std::cout << "    qexpand_depth_wise_.clear() finished! " << std::endl;
     nodes_for_subtraction_trick_.clear();
     //std::cout << "    nodes_for_subtraction_trick_.clear(); finished! " << std::endl;
@@ -856,13 +865,14 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
     if (temp_qexpand_depth.empty()) {
       break;
     } else {
+      qexpand_depth_wise_.clear();
       qexpand_depth_wise_ = temp_qexpand_depth;
       temp_qexpand_depth.clear();
     }
     //std::cout << "    temp_qexpand_depth.clear(); finished! " << std::endl;
-    //std::cout << "\nIteration compleated" << std::endl;
+    std::cout << "\nIteration compleated" << std::endl;
   }
-    //std::cout << "\n ExpandWithDepthWise compleated" << std::endl;
+    std::cout << "\n ExpandWithDepthWise compleated" << std::endl;
 }
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
@@ -993,15 +1003,44 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
   CHECK_GT(out_preds.size(), 0U);
 
   size_t n_nodes = row_set_collection_.end() - row_set_collection_.begin();
+std::cout << "n_nodes: " << n_nodes  << std::endl;
+std::cout << "row_set_collection_[node].Size(): " << row_set_collection_[0].Size()  << std::endl;
+std::cout << "qexpand_depth_wise_.size(): " << qexpand_depth_wise_.size()  << std::endl;
+std::cout << "node_ids.size(): " << node_ids.size()  << std::endl;
+      int nid = qexpand_depth_wise_[0].nid;
+std::cout << "!!!!!!!!!!!!!!!!!!!!nid: " << nid  << std::endl;
 
-  common::BlockedSpace2d space(n_nodes, [&](size_t node) {
-    return row_set_collection_[node].Size();
+std::cout << "!!!!!!!!!!!!!!!!!!!!(*p_last_tree_)[nid].IsDeleted(): " << (*p_last_tree_)[nid].IsDeleted()  << std::endl;
+if(!(*p_last_tree_)[nid].IsDeleted()) {
+  bst_float leaf_value = (*p_last_tree_)[nid].LeafValue();
+  std::cout <<   "!!!!!!!leaf_value = (*p_last_tree_)[nid].LeafValue() :"  << leaf_value<< std::endl;
+
+}
+  common::BlockedSpace2d space(1, [&](size_t node) {
+    return row_set_collection_[0].Size();
   }, 1024);
 
   common::ParallelFor2d(space, this->nthread_, [&](size_t node, common::Range1d r) {
-    const RowSetCollection::Elem rowset = row_set_collection_[node];
+    const RowSetCollection::Elem rowset = row_set_collection_[0];
+    // for (size_t it = r.begin(); it <  r.end(); ++it) {
+    //   bst_float leaf_value;
+    //   // if a node is marked as deleted by the pruner, traverse upward to locate
+    //   // a non-deleted leaf.
+    //   int nid = qexpand_depth_wise_[node_ids[it]].nid;
+    //   if ((*p_last_tree_)[nid].IsDeleted()) {
+    //     while ((*p_last_tree_)[nid].IsDeleted()) {
+    //       nid = (*p_last_tree_)[nid].Parent();
+    //     }
+    //     CHECK((*p_last_tree_)[nid].IsLeaf());
+    //   }
+    //   leaf_value = (*p_last_tree_)[nid].LeafValue();
+
+    //   out_preds[it] += leaf_value;
+    // }
     if (rowset.begin != nullptr && rowset.end != nullptr) {
       int nid = rowset.node_id;
+      //int nid = qexpand_depth_wise_[0].nid;
+     // CHECK(nid == 0);
       bst_float leaf_value;
       // if a node is marked as deleted by the pruner, traverse upward to locate
       // a non-deleted leaf.
@@ -1014,10 +1053,12 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
       leaf_value = (*p_last_tree_)[nid].LeafValue();
 
       for (const size_t* it = rowset.begin + r.begin(); it < rowset.begin + r.end(); ++it) {
-        out_preds[*it] += leaf_value;
+        out_preds[*it] += 0;
       }
     }
   });
+std::cout << "n_nodes: " << n_nodes << "\n";
+std::cout << "n_nodes: " << n_nodes << "\n";
 
   builder_monitor_.Stop("UpdatePredictionCache");
   return true;

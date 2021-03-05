@@ -410,6 +410,8 @@ class QuantileHistMaker: public TreeUpdater {
     common::ColumnSampler column_sampler_;
     // the internal row sets
     RowSetCollection row_set_collection_;
+    std::vector<uint16_t> node_ids;
+//    std::vector<uint16_t> node_ids_global;
     // the temp space for split
     std::vector<RowSetCollection::Split> row_split_tloc_;
     std::vector<SplitEntry> best_split_tloc_;
