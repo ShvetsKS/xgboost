@@ -316,7 +316,7 @@ class QuantileHistMaker: public TreeUpdater {
                      const GHistIndexMatrix& gmat,
                      const std::vector<GradientPair>& gpair,
                      const DMatrix& fmat,
-                     const RegTree& tree);
+                     const RegTree& tree, int i = 0, uint32_t* mask = nullptr);
 
     // Enumerate the split values of specific feature
     // Returns the sum of gradients corresponding to the data points that contains a non-missing
@@ -346,7 +346,7 @@ class QuantileHistMaker: public TreeUpdater {
                               RegTree *p_tree,
                               const std::vector<GradientPair> &gpair_h, int depth = 0,
                               const uint8_t* numa1 = nullptr, const uint8_t* numa2 = nullptr, std::vector<std::vector<double>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
-                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr);
+                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr, const ColumnMatrix *column_matrix = nullptr, uint32_t* mask = nullptr);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,
@@ -370,7 +370,7 @@ class QuantileHistMaker: public TreeUpdater {
     void BuildNodeStats(const GHistIndexMatrix &gmat,
                         DMatrix *p_fmat,
                         RegTree *p_tree,
-                        const std::vector<GradientPair> &gpair_h);
+                        const std::vector<GradientPair> &gpair_h, uint32_t* mask = nullptr);
 
     void EvaluateAndApplySplits(const GHistIndexMatrix &gmat,
                                 const ColumnMatrix &column_matrix,
