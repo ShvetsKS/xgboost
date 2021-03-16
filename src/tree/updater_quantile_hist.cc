@@ -393,6 +393,11 @@ constexpr size_t Prefetch1::kNoPrefetchSize;
     hist_data[idx_bin]   += pgh[idx_gh]; \
     hist_data[idx_bin+1] += pgh[idx_gh+1];
 
+#define VECTOR_UNR(IDX, J)                                                                                 \
+    const size_t offset##IDX = offsets64[IDX + 13*J] + ((size_t)(gr_index_local[IDX + 13*J])) * 16; \
+    asm("vmovapd (%0), %%xmm1;" : : "r" ( offset##IDX ) : /*"%xmm1"*/);                 \
+    asm("vaddpd %xmm2, %xmm1, %xmm3;");                                                             \
+    asm("vmovapd %%xmm3, (%0);" : : "r" ( offset##IDX ) : /*"%xmm3"*/);                 \
 
 template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
@@ -414,26 +419,50 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
   const size_t nb = n_features / 13;
   const size_t tail_size = n_features - nb*13;
 
+std::vector<uint64_t> offsets64_v(n_features);
+uint64_t* offsets64 = &(offsets64_v[0]);
+
+for(size_t i = 0; i < n_features; ++i) {
+  offsets64[i] = (uint64_t)hist_data + 16*(uint64_t)(offsets[i]);
+}
+
   for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
     nodes_ids[i] = 0;
     const size_t icol_start = i * n_features;
     const size_t idx_gh = two *i;
+    const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+    asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
 
     const uint8_t* gr_index_local = gradient_index + icol_start;
    // if (nb >= 1) {
-      UNR(0, 0);
-      UNR(1, 0);
-      UNR(2, 0);
-      UNR(3, 0);
-      UNR(4, 0);
-      UNR(5, 0);
-      UNR(6, 0);
-      UNR(7, 0);
-      UNR(8, 0);
-      UNR(9, 0);
-      UNR(10, 0);
-      UNR(11, 0);
-      UNR(12, 0);
+      VECTOR_UNR(0, 0);
+      VECTOR_UNR(1, 0);
+      VECTOR_UNR(2, 0);
+      VECTOR_UNR(3, 0);
+      VECTOR_UNR(4, 0);
+      VECTOR_UNR(5, 0);
+      VECTOR_UNR(6, 0);
+      VECTOR_UNR(7, 0);
+      VECTOR_UNR(8, 0);
+      VECTOR_UNR(9, 0);
+      VECTOR_UNR(10, 0);
+      VECTOR_UNR(11, 0);
+      VECTOR_UNR(12, 0);
+      // VECTOR_UNR(13, 0);
+      // VECTOR_UNR(14, 0);
+      // VECTOR_UNR(15, 0);
+      // VECTOR_UNR(16, 0);
+      // VECTOR_UNR(17, 0);
+      // VECTOR_UNR(18, 0);
+      // VECTOR_UNR(19, 0);
+      // VECTOR_UNR(20, 0);
+      // VECTOR_UNR(21, 0);
+      // VECTOR_UNR(22, 0);
+      // VECTOR_UNR(23, 0);
+      // VECTOR_UNR(24, 0);
+      // VECTOR_UNR(25, 0);
+      // VECTOR_UNR(26, 0);
+      // VECTOR_UNR(27, 0);
   }
 }
 
@@ -535,7 +564,7 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
                           const uint32_t row_size,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<FPType> hist, const uint8_t* numa, uint16_t* nodes_ids) {
+                          GHistRow<FPType> hist, const uint8_t* numa, uint16_t* nodes_ids, const uint32_t n_nodes) {
   // const size_t size = row_indices.Size();
   // const size_t* rid = row_indices.begin;
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
@@ -547,6 +576,15 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
                            // 2 FP values: gradient and hessian.
                            // So we need to multiply each row-index/bin-index by 2
                            // to work with gradient pairs as a singe row FP array
+std::vector<uint64_t> offsets64_v(n_features*n_nodes);
+uint64_t* offsets640 = &(offsets64_v[0]);
+
+for(size_t nid = 0; nid < n_nodes; ++nid) {
+  for(size_t i = 0; i < n_features; ++i) {
+    offsets640[nid*n_features + i] = (uint64_t)(hist_data0 + nid*n_bins*2) + 16*(uint64_t)(offsets[i]);
+  }
+}
+
 if (row_size > Prefetch1::kPrefetchOffset) {
   for (size_t ri = 0; ri < row_size - Prefetch1::kPrefetchOffset; ++ri) {
     const size_t i = rows[ri];
@@ -564,6 +602,9 @@ if (row_size > Prefetch1::kPrefetchOffset) {
       PREFETCH_READ_T0(gradient_index + j);
     }
 
+    const uint64_t* offsets64 = offsets640 + nid*n_features;
+    const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+    asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
 
 //    const int32_t sc = (*split_conditions)[nid + 1];
 //    const bst_uint si = (*split_ind)[nid + 1];
@@ -571,19 +612,34 @@ if (row_size > Prefetch1::kPrefetchOffset) {
     FPType* hist_data = hist_data0 + nid*n_bins*2;
    // nodes_ids[i] = ;
    // if (nb >= 1) {
-      UNR(0, 0);
-      UNR(1, 0);
-      UNR(2, 0);
-      UNR(3, 0);
-      UNR(4, 0);
-      UNR(5, 0);
-      UNR(6, 0);
-      UNR(7, 0);
-      UNR(8, 0);
-      UNR(9, 0);
-      UNR(10, 0);
-      UNR(11, 0);
-      UNR(12, 0);
+      VECTOR_UNR(0, 0);
+      VECTOR_UNR(1, 0);
+      VECTOR_UNR(2, 0);
+      VECTOR_UNR(3, 0);
+      VECTOR_UNR(4, 0);
+      VECTOR_UNR(5, 0);
+      VECTOR_UNR(6, 0);
+      VECTOR_UNR(7, 0);
+      VECTOR_UNR(8, 0);
+      VECTOR_UNR(9, 0);
+      VECTOR_UNR(10, 0);
+      VECTOR_UNR(11, 0);
+      VECTOR_UNR(12, 0);
+      // VECTOR_UNR(13, 0);
+      // VECTOR_UNR(14, 0);
+      // VECTOR_UNR(15, 0);
+      // VECTOR_UNR(16, 0);
+      // VECTOR_UNR(17, 0);
+      // VECTOR_UNR(18, 0);
+      // VECTOR_UNR(19, 0);
+      // VECTOR_UNR(20, 0);
+      // VECTOR_UNR(21, 0);
+      // VECTOR_UNR(22, 0);
+      // VECTOR_UNR(23, 0);
+      // VECTOR_UNR(24, 0);
+      // VECTOR_UNR(25, 0);
+      // VECTOR_UNR(26, 0);
+      // VECTOR_UNR(27, 0);
   }
 
 for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
@@ -594,20 +650,40 @@ for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
     const uint32_t nid = nodes_ids[i];
 
     const size_t icol_start_prefetch = rows[ri + Prefetch1::kPrefetchOffset] * n_features;
+
+    const uint64_t* offsets64 = offsets640 + nid*n_features;
+    const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+    asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+
     FPType* hist_data = hist_data0 + nid*n_bins*2;
-      UNR(0, 0);
-      UNR(1, 0);
-      UNR(2, 0);
-      UNR(3, 0);
-      UNR(4, 0);
-      UNR(5, 0);
-      UNR(6, 0);
-      UNR(7, 0);
-      UNR(8, 0);
-      UNR(9, 0);
-      UNR(10, 0);
-      UNR(11, 0);
-      UNR(12, 0);
+    VECTOR_UNR(0, 0);
+    VECTOR_UNR(1, 0);
+    VECTOR_UNR(2, 0);
+    VECTOR_UNR(3, 0);
+    VECTOR_UNR(4, 0);
+    VECTOR_UNR(5, 0);
+    VECTOR_UNR(6, 0);
+    VECTOR_UNR(7, 0);
+    VECTOR_UNR(8, 0);
+    VECTOR_UNR(9, 0);
+    VECTOR_UNR(10, 0);
+    VECTOR_UNR(11, 0);
+    VECTOR_UNR(12, 0);
+      // VECTOR_UNR(13, 0);
+      // VECTOR_UNR(14, 0);
+      // VECTOR_UNR(15, 0);
+      // VECTOR_UNR(16, 0);
+      // VECTOR_UNR(17, 0);
+      // VECTOR_UNR(18, 0);
+      // VECTOR_UNR(19, 0);
+      // VECTOR_UNR(20, 0);
+      // VECTOR_UNR(21, 0);
+      // VECTOR_UNR(22, 0);
+      // VECTOR_UNR(23, 0);
+      // VECTOR_UNR(24, 0);
+      // VECTOR_UNR(25, 0);
+      // VECTOR_UNR(26, 0);
+      // VECTOR_UNR(27, 0);
   }
 
 } else {
@@ -617,6 +693,9 @@ for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
     const uint8_t* gr_index_local = gradient_index + icol_start;
     const size_t idx_gh = two * i;
     const uint32_t nid = nodes_ids[i];
+    const uint64_t* offsets64 = offsets640 + nid*n_features;
+    const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+    asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
 
 //    const int32_t sc = (*split_conditions)[nid + 1];
 //    const bst_uint si = (*split_ind)[nid + 1];
@@ -624,19 +703,34 @@ for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
     FPType* hist_data = hist_data0 + nid*n_bins*2;
    // nodes_ids[i] = ;
    // if (nb >= 1) {
-      UNR(0, 0);
-      UNR(1, 0);
-      UNR(2, 0);
-      UNR(3, 0);
-      UNR(4, 0);
-      UNR(5, 0);
-      UNR(6, 0);
-      UNR(7, 0);
-      UNR(8, 0);
-      UNR(9, 0);
-      UNR(10, 0);
-      UNR(11, 0);
-      UNR(12, 0);
+    VECTOR_UNR(0, 0);
+    VECTOR_UNR(1, 0);
+    VECTOR_UNR(2, 0);
+    VECTOR_UNR(3, 0);
+    VECTOR_UNR(4, 0);
+    VECTOR_UNR(5, 0);
+    VECTOR_UNR(6, 0);
+    VECTOR_UNR(7, 0);
+    VECTOR_UNR(8, 0);
+    VECTOR_UNR(9, 0);
+    VECTOR_UNR(10, 0);
+    VECTOR_UNR(11, 0);
+    VECTOR_UNR(12, 0);
+      // VECTOR_UNR(13, 0);
+      // VECTOR_UNR(14, 0);
+      // VECTOR_UNR(15, 0);
+      // VECTOR_UNR(16, 0);
+      // VECTOR_UNR(17, 0);
+      // VECTOR_UNR(18, 0);
+      // VECTOR_UNR(19, 0);
+      // VECTOR_UNR(20, 0);
+      // VECTOR_UNR(21, 0);
+      // VECTOR_UNR(22, 0);
+      // VECTOR_UNR(23, 0);
+      // VECTOR_UNR(24, 0);
+      // VECTOR_UNR(25, 0);
+      // VECTOR_UNR(26, 0);
+      // VECTOR_UNR(27, 0);
   }
 }
 
@@ -881,7 +975,7 @@ const uint64_t t1 = get_time();
         const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
         const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
         BuildHistKernel<GradientSumT, false, uint8_t>(gpair_h, rows, size_r, gmat, n_features,
-                                                      local_hist, numa, nodes_ids);
+                                                      local_hist, numa, nodes_ids, qexpand_depth_wise_.size());
 
       }
       local_time = get_time();
