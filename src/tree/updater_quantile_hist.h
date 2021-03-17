@@ -316,7 +316,7 @@ class QuantileHistMaker: public TreeUpdater {
                      const GHistIndexMatrix& gmat,
                      const std::vector<GradientPair>& gpair,
                      const DMatrix& fmat,
-                     const RegTree& tree, int i = 0, uint32_t* mask = nullptr);
+                     const RegTree& tree, int i = 0, uint64_t* mask = nullptr);
 
     // Enumerate the split values of specific feature
     // Returns the sum of gradients corresponding to the data points that contains a non-missing
@@ -346,7 +346,7 @@ class QuantileHistMaker: public TreeUpdater {
                               RegTree *p_tree,
                               const std::vector<GradientPair> &gpair_h, int depth = 0,
                               const uint8_t* numa1 = nullptr, const uint8_t* numa2 = nullptr, std::vector<std::vector<double>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
-                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr, const ColumnMatrix *column_matrix = nullptr, uint32_t* mask = nullptr);
+                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr, const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,
@@ -370,7 +370,7 @@ class QuantileHistMaker: public TreeUpdater {
     void BuildNodeStats(const GHistIndexMatrix &gmat,
                         DMatrix *p_fmat,
                         RegTree *p_tree,
-                        const std::vector<GradientPair> &gpair_h, uint32_t* mask = nullptr);
+                        const std::vector<GradientPair> &gpair_h, uint64_t* mask = nullptr);
 
     void EvaluateAndApplySplits(const GHistIndexMatrix &gmat,
                                 const ColumnMatrix &column_matrix,
@@ -378,7 +378,7 @@ class QuantileHistMaker: public TreeUpdater {
                                 int *num_leaves,
                                 int depth,
                                 unsigned *timestamp,
-                                std::vector<ExpandEntry> *temp_qexpand_depth, std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr);
+                                std::vector<ExpandEntry> *temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask, std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr);
 
     void AddSplitsToTree(
               const GHistIndexMatrix &gmat,
@@ -387,7 +387,7 @@ class QuantileHistMaker: public TreeUpdater {
               int depth,
               unsigned *timestamp,
               std::vector<ExpandEntry>* nodes_for_apply_split,
-              std::vector<ExpandEntry>* temp_qexpand_depth);
+              std::vector<ExpandEntry>* temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask);
 
     void ExpandWithLossGuide(const GHistIndexMatrix& gmat,
                              const GHistIndexBlockMatrix& gmatb,
@@ -445,6 +445,7 @@ class QuantileHistMaker: public TreeUpdater {
 
     std::unique_ptr<ExpandQueue> qexpand_loss_guided_;
     std::vector<ExpandEntry> qexpand_depth_wise_;
+    std::vector<uint16_t> compleate_trees_depth_wise_;
     // key is the node id which should be calculated by Subtraction Trick, value is the node which
     // provides the evidence for substracts
     std::vector<ExpandEntry> nodes_for_subtraction_trick_;
