@@ -572,7 +572,8 @@ void JustPartitionLastLayer(const size_t row_indices_begin,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const uint8_t* numa, uint16_t* nodes_ids,
-                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, std::vector<int>* curr_level_nodes) {
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                          std::vector<int>* curr_level_nodes, uint64_t leafs_mask, std::vector<int>* prev_level_nodes) {
   const uint8_t* gradient_index = numa;//gmat.index.data<BinIdxType>();
   const uint32_t* offsets = gmat.index.Offset();
 
@@ -581,7 +582,11 @@ void JustPartitionLastLayer(const size_t row_indices_begin,
     if(((uint16_t)(1) << 15 & nid)) {
     continue;
     }
-
+    if(((uint64_t)(1) << nid & leafs_mask)) {
+      nodes_ids[i] = (uint16_t)(1) << 15;
+      nodes_ids[i] |= (uint16_t)((*prev_level_nodes)[nid]);
+      continue;
+    }
       const size_t icol_start = i * n_features;
       const uint8_t* gr_index_local = gradient_index + icol_start;
       const int32_t sc = (*split_conditions)[nid + 1];
@@ -820,6 +825,11 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask) {
       std::string timer_name = "BuildLocalHistograms:";
       timer_name += std::to_string(depth);
+
+    if(1 << depth != qexpand_depth_wise_.size()) {
+      std::cout << "\n\n\n\n2NOT COMPLEATED TREEE!!!: " << depth << " leaf_mask:" << *leaf_mask<< "\n\n\n\n";
+    }
+
       //std::cout << "DEPTH: " << depth << std::endl;
       //CHECK_EQ(1 << depth, qexpand_depth_wise_.size());
   const size_t n_nodes = nodes_for_explicit_hist_build_.size();
@@ -915,7 +925,6 @@ if(depth < 5) {
           vec_rows[tid][0] = count;
       }
   } else {
-    std::cout << "\n\n\n!!!!!!!NOT COMPLEATE TREE!!!\n\n\n";
     #pragma omp parallel num_threads(nthreads)
       {
           size_t tid = omp_get_thread_num();
@@ -1008,7 +1017,7 @@ if(depth < 5) {
             common::Range1d r = space.GetRange(i);
             JustPartitionLastLayer(r.begin(), r.end(), gmat, n_features,
                           vec[tid].data(), vec_rows[tid].data(), count, numa,
-                          nodes_ids, split_conditions, split_ind, &curr_level_nodes);
+                          nodes_ids, split_conditions, split_ind, &curr_level_nodes, *leaf_mask, &prev_level_nodes);
           }
           vec_rows[tid][0] = count;
       }
@@ -1356,6 +1365,10 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
   node_ids.resize(row_set_collection_[0].Size(),0);
   std::vector<bst_uint> split_indexs(1 << param_.max_depth + 1);
   std::vector<int32_t> split_values(1 << param_.max_depth + 1);
+    uint64_t leafs_mask = 0;
+
+static uint64_t n_call = 0;
+++n_call;
   for (int depth = 0; depth < param_.max_depth + 1; depth++) {
     int starting_index = std::numeric_limits<int>::max();
     int sync_count = 0;
@@ -1367,14 +1380,17 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
 //    std::cout << "SplitSiblings finished!!!" << std::endl;
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
 //    std::cout << "AddHistRows finished!" << std::endl;
-    uint64_t mask = 0;
-    uint64_t leafs_mask = 0;
+    if(1 << depth != qexpand_depth_wise_.size()) {
+      std::cout << "\n\n\n\nNOT COMPLEATED TREEE!!!" << n_call << "\n\n\n\n";
+    }
 if(depth > 0) {
 //if(depth < param_.max_depth) {
+    uint64_t mask = 0;
+
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, &mask);
     //if(depth <  param_.max_depth) {
     BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth, numa1, numa2, histograms, node_ids.data(), &split_values, &split_indexs, &column_matrix, &mask, &leafs_mask);
-
+leafs_mask = 0;
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
     //}
 // } else {
