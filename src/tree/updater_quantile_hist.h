@@ -370,7 +370,7 @@ class QuantileHistMaker: public TreeUpdater {
     void BuildNodeStats(const GHistIndexMatrix &gmat,
                         DMatrix *p_fmat,
                         RegTree *p_tree,
-                        const std::vector<GradientPair> &gpair_h, uint64_t* mask = nullptr);
+                        const std::vector<GradientPair> &gpair_h, uint64_t* mask = nullptr, int n_call = 0);
 
     void EvaluateAndApplySplits(const GHistIndexMatrix &gmat,
                                 const ColumnMatrix &column_matrix,
@@ -378,7 +378,9 @@ class QuantileHistMaker: public TreeUpdater {
                                 int *num_leaves,
                                 int depth,
                                 unsigned *timestamp,
-                                std::vector<ExpandEntry> *temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask, std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr);
+                                std::vector<ExpandEntry> *temp_qexpand_depth,
+                                std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask,
+                                std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr, int n_call = 0);
 
     void AddSplitsToTree(
               const GHistIndexMatrix &gmat,
@@ -387,7 +389,7 @@ class QuantileHistMaker: public TreeUpdater {
               int depth,
               unsigned *timestamp,
               std::vector<ExpandEntry>* nodes_for_apply_split,
-              std::vector<ExpandEntry>* temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask);
+              std::vector<ExpandEntry>* temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask, int n_call);
 
     void ExpandWithLossGuide(const GHistIndexMatrix& gmat,
                              const GHistIndexBlockMatrix& gmatb,

@@ -1214,7 +1214,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildNodeStats(
     const GHistIndexMatrix &gmat,
     DMatrix *p_fmat,
     RegTree *p_tree,
-    const std::vector<GradientPair> &gpair_h, uint64_t* mask) {
+    const std::vector<GradientPair> &gpair_h, uint64_t* mask, int n_call) {
   builder_monitor_.Start("BuildNodeStats");
   int i = 0;
   for (auto const& entry : qexpand_depth_wise_) {
@@ -1227,6 +1227,11 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildNodeStats(
       auto parent_id = (*p_tree)[nid].Parent();
       auto left_sibling_id = (*p_tree)[parent_id].LeftChild();
       auto parent_split_feature_id = snode_[parent_id].best.SplitIndex();
+      if (n_call == 175 || n_call == 174 || n_call == 173) {
+        std::cout << "parent_id: " << parent_id << " rnid: " << nid << " parent_split_feature_id: " <<
+        parent_split_feature_id << " left.weight: " << snode_[left_sibling_id].weight << std::endl;
+      }
+
       tree_evaluator_.AddSplit(
           parent_id, left_sibling_id, nid, parent_split_feature_id,
           snode_[left_sibling_id].weight, snode_[nid].weight);
@@ -1245,7 +1250,7 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
           int depth,
           unsigned *timestamp,
           std::vector<ExpandEntry>* nodes_for_apply_split,
-          std::vector<ExpandEntry>* temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask) {
+          std::vector<ExpandEntry>* temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask, int n_call) {
         //    std::cout << "\nAddSplitsToTree: ";
   auto evaluator = tree_evaluator_.GetEvaluator();
   size_t i = 0;
@@ -1272,7 +1277,9 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
                          e.best.DefaultLeft(), e.weight, left_leaf_weight,
                          right_leaf_weight, e.best.loss_chg, e.stats.GetHess(),
                          e.best.left_sum.GetHess(), e.best.right_sum.GetHess());
-
+if (n_call == 175 || n_call == 174 || n_call == 173)
+std::cout << "nid: " << nid << " e.best.SplitIndex(): " << e.best.SplitIndex() << " e.best.split_value: "
+ << e.best.split_value << " e.weight" <<  e.weight << std::endl;
       int left_id = (*p_tree)[nid].LeftChild();
       int right_id = (*p_tree)[nid].RightChild();
       temp_qexpand_depth->push_back(ExpandEntry(left_id, right_id,
@@ -1296,7 +1303,9 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
     int *num_leaves,
     int depth,
     unsigned *timestamp,
-    std::vector<ExpandEntry> *temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask, std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind) {
+    std::vector<ExpandEntry> *temp_qexpand_depth,
+    std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask,
+    std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, int n_call) {
 //std::cout << "!EvaluateAndApplySplits start " << std::endl;
 
 
@@ -1306,7 +1315,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
 
   std::vector<ExpandEntry> nodes_for_apply_split;
   AddSplitsToTree(gmat, p_tree, num_leaves, depth, timestamp,
-                  &nodes_for_apply_split, temp_qexpand_depth, compleate_tmp, leaf_mask);
+                  &nodes_for_apply_split, temp_qexpand_depth, compleate_tmp, leaf_mask, n_call);
 //std::cout << "AddSplitsToTree finished " << std::endl;
   ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree, depth, split_conditions, split_ind);
 //std::cout << "ApplySplit finished " << std::endl;
@@ -1387,7 +1396,7 @@ if(depth > 0) {
 //if(depth < param_.max_depth) {
     uint64_t mask = 0;
 
-    BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, &mask);
+    BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, &mask, n_call);
     //if(depth <  param_.max_depth) {
     BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth, numa1, numa2, histograms, node_ids.data(), &split_values, &split_indexs, &column_matrix, &mask, &leafs_mask);
 leafs_mask = 0;
@@ -1428,7 +1437,7 @@ leafs_mask = 0;
 //     break;
 // }
     EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
-                   &temp_qexpand_depth, &tmp_compleate_trees_depth, &leafs_mask, &split_values, &split_indexs);
+                   &temp_qexpand_depth, &tmp_compleate_trees_depth, &leafs_mask, &split_values, &split_indexs, n_call);
 //    std::cout << "\nEvaluateAndApplySplits finished! " << std::endl;
     // clean up
     //qexpand_depth_wise_.clear();
