@@ -484,13 +484,17 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
       p_tree->GetDepth(ExpandEntry::kRootNid), 0.0, timestamp++));
   ++num_leaves;
   for (int depth = 0; depth < param_.max_depth + 1; depth++) {
+std::string depth_str = std::to_string(depth);
     int starting_index = std::numeric_limits<int>::max();
     int sync_count = 0;
     std::vector<ExpandEntry> temp_qexpand_depth;
     SplitSiblings(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
+  builder_monitor_.Start("BuildLocalHistograms: " + depth_str);
+
     BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
+  builder_monitor_.Stop("BuildLocalHistograms: " + depth_str);
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
 
