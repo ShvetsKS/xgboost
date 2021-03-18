@@ -84,6 +84,7 @@ void QuantileHistMaker::CallBuilderUpdate(const std::unique_ptr<Builder<Gradient
 void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
                                DMatrix *dmat,
                                const std::vector<RegTree *> &trees) {
+  std::vector<GradientPair>& gpair_h = gpair->HostVector();
   if (dmat != p_last_dmat_ || is_gmat_initialized_ == false) {
     updater_monitor_.Start("GmatInitialization");
     gmat_.Init(dmat, static_cast<uint32_t>(param_.max_bin));
@@ -905,7 +906,7 @@ for(size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
 }
 
 if(depth > 0) {
-if(depth < 5) {
+if(depth < 7) {
 
   if (is_compleate_tree) {
     #pragma omp parallel num_threads(nthreads)
@@ -1034,7 +1035,7 @@ prev_level_nodes = curr_level_nodes;
 
   builder_monitor_.Stop("JustPartition!!!!!!");
 
-if(depth < 5) {
+if(depth < 7) {
   builder_monitor_.Start(timer_name);
 
 
@@ -1181,7 +1182,7 @@ if(depth == 0) {
    const int32_t nid_c = compleate_trees_depth_wise_[i];
    const int32_t nid = qexpand_depth_wise_[i].nid;
    //target_hists[i] = hist_[nid];
-   if(((uint64_t)(1) << i) & *mask) {
+   if(((uint64_t)(1) << nid_c) & *mask) {
      smallest.push_back(i);
     GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
     for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
@@ -1400,14 +1401,15 @@ static uint64_t n_call = 0;
 //    std::cout << "SplitSiblings finished!!!" << std::endl;
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
 //    std::cout << "AddHistRows finished!" << std::endl;
-    // if(1 << depth != qexpand_depth_wise_.size()) {
-    //   std::cout << "\n\n\n\nNOT COMPLEATED TREEE!!!" << n_call << "\n\n\n\n";
-    // }
 if(depth > 0) {
 //if(depth < param_.max_depth) {
     uint64_t mask = 0;
 
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, &mask, n_call);
+    // if(1 << depth != qexpand_depth_wise_.size()) {
+    //   std::cout << "\n\n\n\nNOT COMPLEATED TREEE!!!" << n_call << " depth: " << depth << " mask: " << (long long)mask << " qexpand_depth_wise_.size(): " << qexpand_depth_wise_.size() << "\n\n\n\n";
+    // }
+    // std::cout << "mask: " << (long long)mask << std::endl;
     //if(depth <  param_.max_depth) {
     BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h, depth, numa1, numa2, histograms, node_ids.data(), &split_values, &split_indexs, &column_matrix, &mask, &leafs_mask);
 leafs_mask = 0;
@@ -1624,6 +1626,8 @@ static int n_call = 0;
 //   std::cout << "leaf_value: " << leaf_value << " nid: " << nid << " old out_preds[it]: " << out_preds[it] << std::endl;
 // }
       out_preds[it] += leaf_value;
+     // gpair_h_ptr[it] = common::Sigmoid(out_preds[it]) - labels[it];
+      // + 1*common::Sigmoid(out_preds[it]);
 // if(it == 764 && n_call == 174) {
 //   std::cout << " new out_preds[it]: " << out_preds[it] << std::endl;
 // }
@@ -2353,9 +2357,11 @@ void QuantileHistMaker::Builder<GradientSumT>::InitNewNode(int nid,
     } else {
       int parent_id = tree[nid].Parent();
       if (snode_[parent_id].best.left_sum.GetHess() < snode_[parent_id].best.right_sum.GetHess() && tree[nid].IsLeftChild()) {
+        //std::cout << "l:" << i << " ";
         *mask |= (uint64_t)(1) << i;
       }
       if (snode_[parent_id].best.right_sum.GetHess() < snode_[parent_id].best.left_sum.GetHess() && !(tree[nid].IsLeftChild())) {
+        //std::cout << "r:" << i << " ";
         *mask |= (uint64_t)(1) << i;
       }
       if (tree[nid].IsLeftChild()) {
