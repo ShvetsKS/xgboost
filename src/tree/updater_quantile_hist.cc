@@ -29,6 +29,7 @@
 #include "../common/row_set.h"
 #include "../common/column_matrix.h"
 #include "../common/threading_utils.h"
+#include <fstream>
 #if defined(XGBOOST_MM_PREFETCH_PRESENT)
   #include <xmmintrin.h>
   #define PREFETCH_READ_T0(addr) _mm_prefetch(reinterpret_cast<const char*>(addr), _MM_HINT_T0)
@@ -1380,6 +1381,9 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
 
 static uint64_t n_call = 0;
 ++n_call;
+  if(n_call == 175) {
+    std::cout << "764 gh: " << gpair_h[764] << std::endl;
+  }
   for (int depth = 0; depth < param_.max_depth + 1; depth++) {
     int starting_index = std::numeric_limits<int>::max();
     int sync_count = 0;
@@ -1581,7 +1585,8 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
     return false;
   }
   builder_monitor_.Start("UpdatePredictionCache");
-
+static int n_call = 0;
+++n_call;
   std::vector<bst_float>& out_preds = p_out_preds->HostVector();
 
   if (leaf_value_cache_.empty()) {
@@ -1610,8 +1615,13 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
         CHECK((*p_last_tree_)[nid].IsLeaf());
       }
       leaf_value = (*p_last_tree_)[nid].LeafValue();
-
+if(it == 764 && n_call == 174) {
+  std::cout << "leaf_value: " << leaf_value << " nid: " << nid << " old out_preds[it]: " << out_preds[it] << std::endl;
+}
       out_preds[it] += leaf_value;
+if(it == 764 && n_call == 174) {
+  std::cout << " new out_preds[it]: " << out_preds[it] << std::endl;
+}
     }
     // if (rowset.begin != nullptr && rowset.end != nullptr) {
     //   int nid = rowset.node_id;
