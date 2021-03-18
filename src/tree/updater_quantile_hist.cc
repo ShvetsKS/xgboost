@@ -875,7 +875,7 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
 #pragma omp parallel num_threads(nthreads)
 {
  const size_t tid = omp_get_thread_num();
- for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
+ for (size_t i = 0; i < (1 << depth); ++i) {
    for (size_t bin_id = 0; bin_id <  n_bins*2; ++bin_id) {
      (*histograms)[tid][2*i*n_bins + bin_id] = 0;
    }
@@ -1120,7 +1120,7 @@ const uint64_t t1 = get_time();
         const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
         const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
         BuildHistKernel<GradientSumT, false, uint8_t>(gpair_h, rows, size_r, gmat, n_features,
-                                                      local_hist, numa, nodes_ids, qexpand_depth_wise_.size());
+                                                      local_hist, numa, nodes_ids, 1 << depth);
 
       }
       local_time = get_time();
@@ -1219,7 +1219,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildNodeStats(
   int i = 0;
   for (auto const& entry : qexpand_depth_wise_) {
     int nid = entry.nid;
-    this->InitNewNode(nid, gmat, gpair_h, *p_fmat, *p_tree, i, mask);
+    this->InitNewNode(nid, gmat, gpair_h, *p_fmat, *p_tree, compleate_trees_depth_wise_[i], mask);
     ++i;
     // add constraints
     if (!(*p_tree)[nid].IsLeftChild() && !(*p_tree)[nid].IsRoot()) {
@@ -1279,7 +1279,8 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
                          e.best.left_sum.GetHess(), e.best.right_sum.GetHess());
 if (n_call == 175 || n_call == 174 || n_call == 173)
 std::cout << "nid: " << nid << " e.best.SplitIndex(): " << e.best.SplitIndex() << " e.best.split_value: "
- << e.best.split_value << " e.weight" <<  e.weight << std::endl;
+ << e.best.split_value << " e.weight: " <<  e.weight << " left_leaf_weight:" << left_leaf_weight
+  << " right_leaf_weight: " << right_leaf_weight << std::endl;
       int left_id = (*p_tree)[nid].LeftChild();
       int right_id = (*p_tree)[nid].RightChild();
       temp_qexpand_depth->push_back(ExpandEntry(left_id, right_id,
@@ -1365,7 +1366,8 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
   const std::vector<GradientPair> &gpair_h, const uint8_t* numa1, const uint8_t* numa2, std::vector<std::vector<double>>* histograms) {
   unsigned timestamp = 0;
   int num_leaves = 0;
-
+      qexpand_depth_wise_.clear();
+      compleate_trees_depth_wise_.clear();
   // in depth_wise growing, we feed loss_chg with 0.0 since it is not used anyway
   qexpand_depth_wise_.emplace_back(ExpandEntry(ExpandEntry::kRootNid, ExpandEntry::kEmptyNid,
       p_tree->GetDepth(ExpandEntry::kRootNid), 0.0, timestamp++));
