@@ -593,6 +593,10 @@ void JustPartitionLastLayer(const size_t row_indices_begin,
       const int32_t sc = (*split_conditions)[nid + 1];
       const bst_uint si = (*split_ind)[nid + 1];
       nodes_ids[i] = (uint16_t)(1) << 15;
+      // if (i == 764) {
+      //   std::cout << "nid: " << nid << " si: " << si << " sc: " << sc << std::endl;
+
+      // }
       nodes_ids[i] |= (uint16_t)((*curr_level_nodes)[2*nid + !(((int32_t)(gr_index_local[si]) + (int32_t)(offsets[si])) <= sc)]);
   }
 
@@ -827,9 +831,9 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
       std::string timer_name = "BuildLocalHistograms:";
       timer_name += std::to_string(depth);
 
-    if(1 << depth != qexpand_depth_wise_.size()) {
-      std::cout << "\n\n\n\n2NOT COMPLEATED TREEE!!!: " << depth << " leaf_mask:" << *leaf_mask<< "\n\n\n\n";
-    }
+    // if(1 << depth != qexpand_depth_wise_.size()) {
+    //   std::cout << "\n\n\n\n2NOT COMPLEATED TREEE!!!: " << depth << " leaf_mask:" << *leaf_mask<< "\n\n\n\n";
+    // }
 
       //std::cout << "DEPTH: " << depth << std::endl;
       //CHECK_EQ(1 << depth, qexpand_depth_wise_.size());
@@ -1228,10 +1232,10 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildNodeStats(
       auto parent_id = (*p_tree)[nid].Parent();
       auto left_sibling_id = (*p_tree)[parent_id].LeftChild();
       auto parent_split_feature_id = snode_[parent_id].best.SplitIndex();
-      if (n_call == 175 || n_call == 174 || n_call == 173) {
-        std::cout << "parent_id: " << parent_id << " rnid: " << nid << " parent_split_feature_id: " <<
-        parent_split_feature_id << " left.weight: " << snode_[left_sibling_id].weight << std::endl;
-      }
+      // if (n_call == 175 || n_call == 174 || n_call == 173) {
+      //   std::cout << "parent_id: " << parent_id << " rnid: " << nid << " parent_split_feature_id: " <<
+      //   parent_split_feature_id << " left.weight: " << snode_[left_sibling_id].weight << std::endl;
+      // }
 
       tree_evaluator_.AddSplit(
           parent_id, left_sibling_id, nid, parent_split_feature_id,
@@ -1251,7 +1255,7 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
           int depth,
           unsigned *timestamp,
           std::vector<ExpandEntry>* nodes_for_apply_split,
-          std::vector<ExpandEntry>* temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask, int n_call) {
+          std::vector<ExpandEntry>* temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask, int n_call, std::vector<uint16_t>* compleate_splits ) {
         //    std::cout << "\nAddSplitsToTree: ";
   auto evaluator = tree_evaluator_.GetEvaluator();
   size_t i = 0;
@@ -1268,7 +1272,7 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
     } else {
     //  std::cout << " construct split :{" << i << ") ";
       nodes_for_apply_split->push_back(entry);
-
+      compleate_splits->push_back(compleate_trees_depth_wise_[i]);
       NodeEntry& e = snode_[nid];
       bst_float left_leaf_weight =
           evaluator.CalcWeight(nid, param_, GradStats{e.best.left_sum}) * param_.learning_rate;
@@ -1278,10 +1282,10 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
                          e.best.DefaultLeft(), e.weight, left_leaf_weight,
                          right_leaf_weight, e.best.loss_chg, e.stats.GetHess(),
                          e.best.left_sum.GetHess(), e.best.right_sum.GetHess());
-if (n_call == 175 || n_call == 174 || n_call == 173)
-std::cout << "nid: " << nid << " e.best.SplitIndex(): " << e.best.SplitIndex() << " e.best.split_value: "
- << e.best.split_value << " e.weight: " <<  e.weight << " left_leaf_weight:" << left_leaf_weight
-  << " right_leaf_weight: " << right_leaf_weight << std::endl;
+// if (n_call == 175 || n_call == 174 || n_call == 173)
+// std::cout << "nid: " << nid << " e.best.SplitIndex(): " << e.best.SplitIndex() << " e.best.split_value: "
+//  << e.best.split_value << " e.weight: " <<  e.weight << " left_leaf_weight:" << left_leaf_weight
+//   << " right_leaf_weight: " << right_leaf_weight << std::endl;
       int left_id = (*p_tree)[nid].LeftChild();
       int right_id = (*p_tree)[nid].RightChild();
       temp_qexpand_depth->push_back(ExpandEntry(left_id, right_id,
@@ -1316,10 +1320,11 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
 //std::cout << "EvaluateSplits finished " << std::endl;
 
   std::vector<ExpandEntry> nodes_for_apply_split;
+  std::vector<uint16_t> compleate_apply_split;
   AddSplitsToTree(gmat, p_tree, num_leaves, depth, timestamp,
-                  &nodes_for_apply_split, temp_qexpand_depth, compleate_tmp, leaf_mask, n_call);
+                  &nodes_for_apply_split, temp_qexpand_depth, compleate_tmp, leaf_mask, n_call, &compleate_apply_split);
 //std::cout << "AddSplitsToTree finished " << std::endl;
-  ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree, depth, split_conditions, split_ind);
+  ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree, depth, split_conditions, split_ind, &compleate_apply_split);
 //std::cout << "ApplySplit finished " << std::endl;
 }
 
@@ -1381,9 +1386,9 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
 
 static uint64_t n_call = 0;
 ++n_call;
-  if(n_call == 175) {
-    std::cout << "764 gh: " << gpair_h[764] << std::endl;
-  }
+  // if(n_call == 175) {
+  //   std::cout << "764 gh: " << gpair_h[764] << std::endl;
+  // }
   for (int depth = 0; depth < param_.max_depth + 1; depth++) {
     int starting_index = std::numeric_limits<int>::max();
     int sync_count = 0;
@@ -1395,9 +1400,9 @@ static uint64_t n_call = 0;
 //    std::cout << "SplitSiblings finished!!!" << std::endl;
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
 //    std::cout << "AddHistRows finished!" << std::endl;
-    if(1 << depth != qexpand_depth_wise_.size()) {
-      std::cout << "\n\n\n\nNOT COMPLEATED TREEE!!!" << n_call << "\n\n\n\n";
-    }
+    // if(1 << depth != qexpand_depth_wise_.size()) {
+    //   std::cout << "\n\n\n\nNOT COMPLEATED TREEE!!!" << n_call << "\n\n\n\n";
+    // }
 if(depth > 0) {
 //if(depth < param_.max_depth) {
     uint64_t mask = 0;
@@ -1615,13 +1620,13 @@ static int n_call = 0;
         CHECK((*p_last_tree_)[nid].IsLeaf());
       }
       leaf_value = (*p_last_tree_)[nid].LeafValue();
-if(it == 764 && n_call == 174) {
-  std::cout << "leaf_value: " << leaf_value << " nid: " << nid << " old out_preds[it]: " << out_preds[it] << std::endl;
-}
+// if(it == 764 && n_call == 174) {
+//   std::cout << "leaf_value: " << leaf_value << " nid: " << nid << " old out_preds[it]: " << out_preds[it] << std::endl;
+// }
       out_preds[it] += leaf_value;
-if(it == 764 && n_call == 174) {
-  std::cout << " new out_preds[it]: " << out_preds[it] << std::endl;
-}
+// if(it == 764 && n_call == 174) {
+//   std::cout << " new out_preds[it]: " << out_preds[it] << std::endl;
+// }
     }
     // if (rowset.begin != nullptr && rowset.end != nullptr) {
     //   int nid = rowset.node_id;
@@ -2173,7 +2178,7 @@ void QuantileHistMaker::Builder<GradientSumT>::FindSplitConditions(
                                                      const std::vector<ExpandEntry>& nodes,
                                                      const RegTree& tree,
                                                      const GHistIndexMatrix& gmat,
-                                                     std::vector<int32_t>* split_conditions) {
+                                                     std::vector<int32_t>* split_conditions, std::vector<uint16_t>* tmp) {
   const size_t n_nodes = nodes.size();
   //std::cout<< "n_nodes: " << n_nodes << "\n";
   (*split_conditions)[0] = n_nodes;
@@ -2196,7 +2201,7 @@ void QuantileHistMaker::Builder<GradientSumT>::FindSplitConditions(
         split_cond = static_cast<int32_t>(bound);
       }
     }
-    (*split_conditions)[i + 1] = split_cond;
+    (*split_conditions)[(*tmp)[i] + 1] = split_cond;
   }
 }
 template <typename GradientSumT>
@@ -2219,7 +2224,8 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
                                             const GHistIndexMatrix& gmat,
                                             const ColumnMatrix& column_matrix,
                                             const HistCollection<GradientSumT>& hist,
-                                            RegTree* p_tree, int depth, std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind) {
+                                            RegTree* p_tree, int depth, std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                                            std::vector<uint16_t>* compleate_splits ) {
   std::string timer_name = "Partition:";
   timer_name += std::to_string(depth);
   builder_monitor_.Start("ApplySplit");
@@ -2227,13 +2233,13 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
   const size_t n_nodes = nodes.size();
   //std::cout << "\nn_nodes: " << n_nodes << "\n";
   //std::vector<int32_t> split_conditions;
-  FindSplitConditions(nodes, *p_tree, gmat, split_conditions);
+  FindSplitConditions(nodes, *p_tree, gmat, split_conditions, compleate_splits);
   //std::cout << "\n FindSplitConditions finished \n";
 (*split_ind)[0] = n_nodes;
 for (size_t i = 0; i < n_nodes; ++i) {
     const int32_t nid = nodes[i].nid;
     const bst_uint fid = (*p_tree)[nid].SplitIndex();
-    (*split_ind)[i + 1] = fid;
+    (*split_ind)[(*compleate_splits)[i] + 1] = fid;
 }
   //std::cout << "\n ApplySplit finished \n";
 //   // 2.1 Create a blocked space of size SUM(samples in each node)
