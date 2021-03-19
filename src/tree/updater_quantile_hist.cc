@@ -1396,10 +1396,10 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
                          e.best.DefaultLeft(), e.weight, left_leaf_weight,
                          right_leaf_weight, e.best.loss_chg, e.stats.GetHess(),
                          e.best.left_sum.GetHess(), e.best.right_sum.GetHess());
-if (n_call == 92 || n_call == 93 || n_call == 94)
-std::cout << "nid: " << nid << " e.best.SplitIndex(): " << e.best.SplitIndex() << " e.best.split_value: "
- << e.best.split_value << " e.weight: " <<  e.weight << " left_leaf_weight:" << left_leaf_weight
-  << " right_leaf_weight: " << right_leaf_weight << std::endl;
+// if (n_call == 92 || n_call == 93 || n_call == 94)
+// std::cout << "nid: " << nid << " e.best.SplitIndex(): " << e.best.SplitIndex() << " e.best.split_value: "
+//  << e.best.split_value << " e.weight: " <<  e.weight << " left_leaf_weight:" << left_leaf_weight
+//   << " right_leaf_weight: " << right_leaf_weight << std::endl;
       int left_id = (*p_tree)[nid].LeftChild();
       int right_id = (*p_tree)[nid].RightChild();
       temp_qexpand_depth->push_back(ExpandEntry(left_id, right_id,
@@ -1502,9 +1502,11 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
 
 static uint64_t n_call = 0;
 ++n_call;
-  // if(n_call == 175) {
-  //   std::cout << "764 gh: " << gpair_h[764] << std::endl;
-  // }
+  if(n_call == 94) {
+    std::cout << std::endl;
+      std::cout << gpair_h[43] << "   ";// 0.67698/0.218678
+    std::cout << std::endl;
+  }
   for (int depth = 0; depth < param_.max_depth + 1; depth++) {
     int starting_index = std::numeric_limits<int>::max();
     int sync_count = 0;
