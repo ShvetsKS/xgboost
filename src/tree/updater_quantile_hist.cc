@@ -450,21 +450,21 @@ for(size_t i = 0; i < n_features; ++i) {
       VECTOR_UNR(10, 0);
       VECTOR_UNR(11, 0);
       VECTOR_UNR(12, 0);
-      // VECTOR_UNR(13, 0);
-      // VECTOR_UNR(14, 0);
-      // VECTOR_UNR(15, 0);
-      // VECTOR_UNR(16, 0);
-      // VECTOR_UNR(17, 0);
-      // VECTOR_UNR(18, 0);
-      // VECTOR_UNR(19, 0);
-      // VECTOR_UNR(20, 0);
-      // VECTOR_UNR(21, 0);
-      // VECTOR_UNR(22, 0);
-      // VECTOR_UNR(23, 0);
-      // VECTOR_UNR(24, 0);
-      // VECTOR_UNR(25, 0);
-      // VECTOR_UNR(26, 0);
-      // VECTOR_UNR(27, 0);
+      VECTOR_UNR(13, 0);
+      VECTOR_UNR(14, 0);
+      VECTOR_UNR(15, 0);
+      VECTOR_UNR(16, 0);
+      VECTOR_UNR(17, 0);
+      VECTOR_UNR(18, 0);
+      VECTOR_UNR(19, 0);
+      VECTOR_UNR(20, 0);
+      VECTOR_UNR(21, 0);
+      VECTOR_UNR(22, 0);
+      VECTOR_UNR(23, 0);
+      VECTOR_UNR(24, 0);
+      VECTOR_UNR(25, 0);
+      VECTOR_UNR(26, 0);
+      VECTOR_UNR(27, 0);
   }
 }
 
@@ -700,21 +700,21 @@ if (row_size > Prefetch1::kPrefetchOffset) {
       VECTOR_UNR(10, 0);
       VECTOR_UNR(11, 0);
       VECTOR_UNR(12, 0);
-      // VECTOR_UNR(13, 0);
-      // VECTOR_UNR(14, 0);
-      // VECTOR_UNR(15, 0);
-      // VECTOR_UNR(16, 0);
-      // VECTOR_UNR(17, 0);
-      // VECTOR_UNR(18, 0);
-      // VECTOR_UNR(19, 0);
-      // VECTOR_UNR(20, 0);
-      // VECTOR_UNR(21, 0);
-      // VECTOR_UNR(22, 0);
-      // VECTOR_UNR(23, 0);
-      // VECTOR_UNR(24, 0);
-      // VECTOR_UNR(25, 0);
-      // VECTOR_UNR(26, 0);
-      // VECTOR_UNR(27, 0);
+      VECTOR_UNR(13, 0);
+      VECTOR_UNR(14, 0);
+      VECTOR_UNR(15, 0);
+      VECTOR_UNR(16, 0);
+      VECTOR_UNR(17, 0);
+      VECTOR_UNR(18, 0);
+      VECTOR_UNR(19, 0);
+      VECTOR_UNR(20, 0);
+      VECTOR_UNR(21, 0);
+      VECTOR_UNR(22, 0);
+      VECTOR_UNR(23, 0);
+      VECTOR_UNR(24, 0);
+      VECTOR_UNR(25, 0);
+      VECTOR_UNR(26, 0);
+      VECTOR_UNR(27, 0);
   }
 
 for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
@@ -744,21 +744,21 @@ for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
     VECTOR_UNR(10, 0);
     VECTOR_UNR(11, 0);
     VECTOR_UNR(12, 0);
-      // VECTOR_UNR(13, 0);
-      // VECTOR_UNR(14, 0);
-      // VECTOR_UNR(15, 0);
-      // VECTOR_UNR(16, 0);
-      // VECTOR_UNR(17, 0);
-      // VECTOR_UNR(18, 0);
-      // VECTOR_UNR(19, 0);
-      // VECTOR_UNR(20, 0);
-      // VECTOR_UNR(21, 0);
-      // VECTOR_UNR(22, 0);
-      // VECTOR_UNR(23, 0);
-      // VECTOR_UNR(24, 0);
-      // VECTOR_UNR(25, 0);
-      // VECTOR_UNR(26, 0);
-      // VECTOR_UNR(27, 0);
+      VECTOR_UNR(13, 0);
+      VECTOR_UNR(14, 0);
+      VECTOR_UNR(15, 0);
+      VECTOR_UNR(16, 0);
+      VECTOR_UNR(17, 0);
+      VECTOR_UNR(18, 0);
+      VECTOR_UNR(19, 0);
+      VECTOR_UNR(20, 0);
+      VECTOR_UNR(21, 0);
+      VECTOR_UNR(22, 0);
+      VECTOR_UNR(23, 0);
+      VECTOR_UNR(24, 0);
+      VECTOR_UNR(25, 0);
+      VECTOR_UNR(26, 0);
+      VECTOR_UNR(27, 0);
   }
 
 } else {
@@ -791,21 +791,21 @@ for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
   VECTOR_UNR(10, 0);
   VECTOR_UNR(11, 0);
   VECTOR_UNR(12, 0);
-      // VECTOR_UNR(13, 0);
-      // VECTOR_UNR(14, 0);
-      // VECTOR_UNR(15, 0);
-      // VECTOR_UNR(16, 0);
-      // VECTOR_UNR(17, 0);
-      // VECTOR_UNR(18, 0);
-      // VECTOR_UNR(19, 0);
-      // VECTOR_UNR(20, 0);
-      // VECTOR_UNR(21, 0);
-      // VECTOR_UNR(22, 0);
-      // VECTOR_UNR(23, 0);
-      // VECTOR_UNR(24, 0);
-      // VECTOR_UNR(25, 0);
-      // VECTOR_UNR(26, 0);
-      // VECTOR_UNR(27, 0);
+      VECTOR_UNR(13, 0);
+      VECTOR_UNR(14, 0);
+      VECTOR_UNR(15, 0);
+      VECTOR_UNR(16, 0);
+      VECTOR_UNR(17, 0);
+      VECTOR_UNR(18, 0);
+      VECTOR_UNR(19, 0);
+      VECTOR_UNR(20, 0);
+      VECTOR_UNR(21, 0);
+      VECTOR_UNR(22, 0);
+      VECTOR_UNR(23, 0);
+      VECTOR_UNR(24, 0);
+      VECTOR_UNR(25, 0);
+      VECTOR_UNR(26, 0);
+      VECTOR_UNR(27, 0);
   }
 }
 
@@ -878,6 +878,8 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
   const size_t num_blocks_in_space = space.Size();
   nthreads = std::min(nthreads, omp_get_max_threads());
   nthreads = std::max(nthreads, 1);
+if(depth < max_depth) {
+builder_monitor_.Start("!BuildHistPreparation!!!!!!");
 
 #pragma omp parallel num_threads(nthreads)
 {
@@ -888,150 +890,153 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
    }
  }
 }
+builder_monitor_.Stop("!BuildHistPreparation!!!!!!");
+}
+
 builder_monitor_.Start("JustPartition!!!!!!");
-std::vector<std::vector<uint32_t>> vec(nthreads);
-static std::vector<std::vector<uint32_t>> vec_rows(nthreads);
-static bool is_compleate_tree = true;
-if (depth == 0) {
-  is_compleate_tree = true;
-}
+            std::vector<std::vector<uint32_t>> vec(nthreads);
+            static std::vector<std::vector<uint32_t>> vec_rows(nthreads);
+            static bool is_compleate_tree = true;
+            if (depth == 0) {
+              is_compleate_tree = true;
+            }
 
-is_compleate_tree = is_compleate_tree * (1 << depth == qexpand_depth_wise_.size());
+            is_compleate_tree = is_compleate_tree * (1 << depth == qexpand_depth_wise_.size());
 
-std::vector<std::vector<AddrBeginEnd>> threads_addr(nthreads);
+            std::vector<std::vector<AddrBeginEnd>> threads_addr(nthreads);
 
-static std::vector<int> prev_level_nodes;
-std::vector<int> curr_level_nodes(1 << depth, 0);
+            static std::vector<int> prev_level_nodes;
+            std::vector<int> curr_level_nodes(1 << depth, 0);
 
-for(size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
-  curr_level_nodes[compleate_trees_depth_wise_[i]] = qexpand_depth_wise_[i].nid;
-}
-if(depth > 0) {
-if(depth < max_depth) {
+            for(size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
+              curr_level_nodes[compleate_trees_depth_wise_[i]] = qexpand_depth_wise_[i].nid;
+            }
+            if(depth > 0) {
+            if(depth < max_depth) {
 
-  if (is_compleate_tree) {
-    #pragma omp parallel num_threads(nthreads)
-      {
-          size_t tid = omp_get_thread_num();
-          const uint8_t* numa = tid < nthreads/2 ? numa1 : numa2;
-          size_t chunck_size =
-              num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+              if (is_compleate_tree) {
+                #pragma omp parallel num_threads(nthreads)
+                  {
+                      size_t tid = omp_get_thread_num();
+                      const uint8_t* numa = tid < nthreads/2 ? numa1 : numa2;
+                      size_t chunck_size =
+                          num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
 
-          size_t begin = chunck_size * tid;
-          size_t end = std::min(begin + chunck_size, num_blocks_in_space);
-          uint64_t local_time_alloc = 0;
-          vec[tid].resize(64);
-          vec_rows[tid].resize(4096*(end - begin));
-          uint32_t count = 0;
-          for (auto i = begin; i < end; i++) {
-            common::Range1d r = space.GetRange(i);
-            JustPartition(r.begin(), r.end(), gmat, n_features,
-                          vec[tid].data(), vec_rows[tid].data(), count, numa,
-                          nodes_ids, split_conditions, split_ind, mask);//, column_matrix);
-          }
-          vec_rows[tid][0] = count;
-      }
-  } else {
-    #pragma omp parallel num_threads(nthreads)
-      {
-          size_t tid = omp_get_thread_num();
-          const uint8_t* numa = tid < nthreads/2 ? numa1 : numa2;
-          size_t chunck_size =
-              num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+                      size_t begin = chunck_size * tid;
+                      size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+                      uint64_t local_time_alloc = 0;
+                      vec[tid].resize(64);
+                      vec_rows[tid].resize(4096*(end - begin));
+                      uint32_t count = 0;
+                      for (auto i = begin; i < end; i++) {
+                        common::Range1d r = space.GetRange(i);
+                        JustPartition(r.begin(), r.end(), gmat, n_features,
+                                      vec[tid].data(), vec_rows[tid].data(), count, numa,
+                                      nodes_ids, split_conditions, split_ind, mask);//, column_matrix);
+                      }
+                      vec_rows[tid][0] = count;
+                  }
+              } else {
+                #pragma omp parallel num_threads(nthreads)
+                  {
+                      size_t tid = omp_get_thread_num();
+                      const uint8_t* numa = tid < nthreads/2 ? numa1 : numa2;
+                      size_t chunck_size =
+                          num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
 
-          size_t begin = chunck_size * tid;
-          size_t end = std::min(begin + chunck_size, num_blocks_in_space);
-          uint64_t local_time_alloc = 0;
-          vec[tid].resize(64);
-          vec_rows[tid].resize(4096*(end - begin));
-          uint32_t count = 0;
-          for (auto i = begin; i < end; i++) {
-            common::Range1d r = space.GetRange(i);
-            JustPartitionWithLeafsMask(r.begin(), r.end(), gmat, n_features,
-                          vec[tid].data(), vec_rows[tid].data(), count, numa,
-                          nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes);
+                      size_t begin = chunck_size * tid;
+                      size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+                      uint64_t local_time_alloc = 0;
+                      vec[tid].resize(64);
+                      vec_rows[tid].resize(4096*(end - begin));
+                      uint32_t count = 0;
+                      for (auto i = begin; i < end; i++) {
+                        common::Range1d r = space.GetRange(i);
+                        JustPartitionWithLeafsMask(r.begin(), r.end(), gmat, n_features,
+                                      vec[tid].data(), vec_rows[tid].data(), count, numa,
+                                      nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes);
 
-          }
-          vec_rows[tid][0] = count;
-      }
-  }
-    uint32_t summ_size1 = 0;
+                      }
+                      vec_rows[tid][0] = count;
+                  }
+              }
+                uint32_t summ_size1 = 0;
 
-    for(uint32_t i = 0; i < nthreads; ++i) {
-      summ_size1 += vec_rows[i][0];
-    }
+                for(uint32_t i = 0; i < nthreads; ++i) {
+                  summ_size1 += vec_rows[i][0];
+                }
 
-    // std::cout << "summ_size1: " << summ_size1 << std::endl;
-    uint32_t block_size = summ_size1/nthreads + !!(summ_size1%nthreads);
-    // std::cout << "block_size: " << block_size << std::endl;
-    uint32_t curr_vec_rows_id = 0;
-    uint32_t curr_vec_rows_size = vec_rows[curr_vec_rows_id][0];
-    uint32_t curr_thread_size = block_size;
-    for(uint32_t i = 0; i < nthreads; ++i) {
-      // std::cout << "curr_thread_size: " << curr_thread_size << std::endl;
-      while (curr_thread_size != 0) {
-        // std::cout << "  curr_vec_rows_size: " << curr_vec_rows_size << std::endl;
-        // std::cout << "  curr_vec_rows_id: " << curr_vec_rows_id << std::endl;
-        // std::cout << "  curr_thread_size: " << curr_thread_size << std::endl;
-        if(curr_vec_rows_size > curr_thread_size) {
-          threads_addr[i].push_back({vec_rows[curr_vec_rows_id].data(),
-                                    1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size,
-                                    1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size + curr_thread_size});
-          curr_vec_rows_size -= curr_thread_size;
-          curr_thread_size = 0;
-        } else if (curr_vec_rows_size == curr_thread_size) {
-          threads_addr[i].push_back({vec_rows[curr_vec_rows_id].data(),
-                                    1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size,
-                                    1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size + curr_thread_size});
-          curr_vec_rows_id += (curr_vec_rows_id < (nthreads - 1));
-          curr_vec_rows_size = vec_rows[curr_vec_rows_id][0];
-          curr_thread_size = 0;
-        } else {
-          threads_addr[i].push_back({vec_rows[curr_vec_rows_id].data(),
-                                    1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size,
-                                    1 + vec_rows[curr_vec_rows_id][0]});
-          curr_thread_size -= curr_vec_rows_size;
-          curr_vec_rows_id += (curr_vec_rows_id < (nthreads - 1));
-          curr_vec_rows_size = vec_rows[curr_vec_rows_id][0];
-        }
-      }
-      // std::cout << "thread: " << i << ":";
-      // for (size_t j = 0; j < threads_addr[i].size(); ++j) {
-      //   std::cout << threads_addr[i][j].e - threads_addr[i][j].b << "   ";
-      // }
-      //std::cout << "\n";
-      curr_thread_size = std::min(block_size, summ_size1 - block_size*(i+1));
-    }
-} else {
-    #pragma omp parallel num_threads(nthreads)
-      {
-          size_t tid = omp_get_thread_num();
-          const uint8_t* numa = tid < nthreads/2 ? numa1 : numa2;
-          size_t chunck_size =
-              num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+                // std::cout << "summ_size1: " << summ_size1 << std::endl;
+                uint32_t block_size = summ_size1/nthreads + !!(summ_size1%nthreads);
+                // std::cout << "block_size: " << block_size << std::endl;
+                uint32_t curr_vec_rows_id = 0;
+                uint32_t curr_vec_rows_size = vec_rows[curr_vec_rows_id][0];
+                uint32_t curr_thread_size = block_size;
+                for(uint32_t i = 0; i < nthreads; ++i) {
+                  // std::cout << "curr_thread_size: " << curr_thread_size << std::endl;
+                  while (curr_thread_size != 0) {
+                    // std::cout << "  curr_vec_rows_size: " << curr_vec_rows_size << std::endl;
+                    // std::cout << "  curr_vec_rows_id: " << curr_vec_rows_id << std::endl;
+                    // std::cout << "  curr_thread_size: " << curr_thread_size << std::endl;
+                    if(curr_vec_rows_size > curr_thread_size) {
+                      threads_addr[i].push_back({vec_rows[curr_vec_rows_id].data(),
+                                                1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size,
+                                                1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size + curr_thread_size});
+                      curr_vec_rows_size -= curr_thread_size;
+                      curr_thread_size = 0;
+                    } else if (curr_vec_rows_size == curr_thread_size) {
+                      threads_addr[i].push_back({vec_rows[curr_vec_rows_id].data(),
+                                                1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size,
+                                                1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size + curr_thread_size});
+                      curr_vec_rows_id += (curr_vec_rows_id < (nthreads - 1));
+                      curr_vec_rows_size = vec_rows[curr_vec_rows_id][0];
+                      curr_thread_size = 0;
+                    } else {
+                      threads_addr[i].push_back({vec_rows[curr_vec_rows_id].data(),
+                                                1 + vec_rows[curr_vec_rows_id][0] - curr_vec_rows_size,
+                                                1 + vec_rows[curr_vec_rows_id][0]});
+                      curr_thread_size -= curr_vec_rows_size;
+                      curr_vec_rows_id += (curr_vec_rows_id < (nthreads - 1));
+                      curr_vec_rows_size = vec_rows[curr_vec_rows_id][0];
+                    }
+                  }
+                  // std::cout << "thread: " << i << ":";
+                  // for (size_t j = 0; j < threads_addr[i].size(); ++j) {
+                  //   std::cout << threads_addr[i][j].e - threads_addr[i][j].b << "   ";
+                  // }
+                  //std::cout << "\n";
+                  curr_thread_size = std::min(block_size, summ_size1 > block_size*(i+1) ? summ_size1 - block_size*(i+1) : 0);
+                }
+            } else {
+                #pragma omp parallel num_threads(nthreads)
+                  {
+                      size_t tid = omp_get_thread_num();
+                      const uint8_t* numa = tid < nthreads/2 ? numa1 : numa2;
+                      size_t chunck_size =
+                          num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
 
-          size_t begin = chunck_size * tid;
-          size_t end = std::min(begin + chunck_size, num_blocks_in_space);
-          vec[tid].resize(64);
-          vec_rows[tid].resize(4096*(end - begin));
-          uint64_t local_time_alloc = 0;
-          uint32_t count = 0;
-          for (auto i = begin; i < end; i++) {
-            common::Range1d r = space.GetRange(i);
-            JustPartitionLastLayer(r.begin(), r.end(), gmat, n_features,
-                          vec[tid].data(), vec_rows[tid].data(), count, numa,
-                          nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes);
-          }
-          vec_rows[tid][0] = count;
-      }
+                      size_t begin = chunck_size * tid;
+                      size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+                      vec[tid].resize(64);
+                      vec_rows[tid].resize(4096*(end - begin));
+                      uint64_t local_time_alloc = 0;
+                      uint32_t count = 0;
+                      for (auto i = begin; i < end; i++) {
+                        common::Range1d r = space.GetRange(i);
+                        JustPartitionLastLayer(r.begin(), r.end(), gmat, n_features,
+                                      vec[tid].data(), vec_rows[tid].data(), count, numa,
+                                      nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes);
+                      }
+                      vec_rows[tid][0] = count;
+                  }
 
-}
+            }
 
 
-}
-prev_level_nodes = curr_level_nodes;
+            }
+            prev_level_nodes = curr_level_nodes;
 
-  builder_monitor_.Stop("JustPartition!!!!!!");
+builder_monitor_.Stop("JustPartition!!!!!!");
 
 if(depth < max_depth) {
   builder_monitor_.Start(timer_name);
@@ -1160,6 +1165,8 @@ if(++n_call == N_CALL/5) {
 }
   builder_monitor_.Stop(timer_name);
 
+  builder_monitor_.Start("BuildHistSync!!");
+
 if(depth == 0) {
   for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
    const int32_t nid = qexpand_depth_wise_[i].nid;
@@ -1175,6 +1182,7 @@ if(depth == 0) {
    }
   }
 } else {
+
   std::vector<size_t> smallest;
   std::vector<size_t> largest;
   for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
@@ -1311,8 +1319,9 @@ CHECK_EQ(smallest.size(), largest.size());
 //     dest_hist[bin_id] = parent_hist[bin_id] - small_hist[bin_id];
 //   }
 // }
-
 }
+builder_monitor_.Stop("BuildHistSync!!");
+
 }
 
 builder_monitor_.Stop("BuildLocalHistograms FULL");
