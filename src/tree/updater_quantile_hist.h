@@ -346,7 +346,8 @@ class QuantileHistMaker: public TreeUpdater {
                               RegTree *p_tree,
                               const std::vector<GradientPair> &gpair_h, int depth = 0,
                               const uint8_t* numa1 = nullptr, const uint8_t* numa2 = nullptr, std::vector<std::vector<double>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
-                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr, const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr);
+                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr,
+                              const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr, int max_depth = 0);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,
