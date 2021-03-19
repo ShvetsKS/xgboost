@@ -817,6 +817,12 @@ struct AddrBeginEnd {
   uint32_t e;
 };
 
+struct NodesBeginEnd {
+  uint32_t node_id;
+  uint32_t b;
+  uint32_t e;
+};
+
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
     const GHistIndexMatrix &gmat,
@@ -1173,36 +1179,138 @@ if(depth == 0) {
   std::vector<size_t> largest;
   for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
    const int32_t nid_c = compleate_trees_depth_wise_[i];
-   const int32_t nid = qexpand_depth_wise_[i].nid;
-   //target_hists[i] = hist_[nid];
    if(((uint64_t)(1) << (nid_c%64)) & *(mask + nid_c/64)) {
      smallest.push_back(i);
-    GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
-    for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
-      dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
-    }
-    for (size_t tid = 1; tid < nthreads; ++tid) {
-      for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
-        dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
-      }
-    }
    } else {
      largest.push_back(i);
    }
   }
-CHECK_EQ(smallest.size(), largest.size());
-for(size_t i = 0; i < largest.size(); ++i) {
-  const int32_t small_nid = qexpand_depth_wise_[smallest[i]].nid;
-  const int32_t largest_nid = qexpand_depth_wise_[smallest[i]].sibling_nid;
-  const size_t parent_id = (*p_tree)[small_nid].Parent();
 
-  GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[largest_nid].data());
-  GradientSumT* parent_hist = reinterpret_cast< GradientSumT*>(hist_[parent_id].data());
-  GradientSumT* small_hist = reinterpret_cast< GradientSumT*>(hist_[small_nid].data());
-  for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
-    dest_hist[bin_id] = parent_hist[bin_id] - small_hist[bin_id];
+// if(smallest.size() == 1) {
+//   for (size_t i = 0; i < smallest.size(); ++i) {
+//    const int32_t nid_c = compleate_trees_depth_wise_[smallest[i]];
+//    const int32_t nid = qexpand_depth_wise_[smallest[i]].nid;
+//     GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
+//     for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
+//       dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
+//     }
+//     for (size_t tid = 1; tid < nthreads; ++tid) {
+//       for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
+//         dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
+//       }
+//     }
+//   }
+// } else {
+    const uint32_t summ_size_bin = n_bins*smallest.size();
+    uint32_t block_size = summ_size_bin/nthreads + !!(summ_size_bin%nthreads);
+    std::vector<std::vector<NodesBeginEnd>> threads_work(nthreads);
+    // std::cout << "block_size: " << block_size << std::endl;
+    // std::cout << "n_bins: " << n_bins << std::endl;
+    const uint32_t node_full_size = n_bins;
+    uint32_t curr_node_id = 0;
+    uint32_t curr_node_size = node_full_size;
+    uint32_t curr_thread_size = block_size;
+    for(uint32_t i = 0; i < nthreads; ++i) {
+      // std::cout << "i : " << i << std::endl;
+      // std::cout << "curr_thread_size : " << curr_thread_size << std::endl;
+      // std::cout << "curr_node_size : " << curr_node_size << std::endl;
+      while (curr_thread_size != 0) {
+        if(curr_node_size > curr_thread_size) {
+          CHECK_LT(curr_node_id, smallest.size());
+          threads_work[i].push_back({curr_node_id, node_full_size - curr_node_size,
+                                    node_full_size - curr_node_size + curr_thread_size});
+          curr_node_size -= curr_thread_size;
+          curr_thread_size = 0;
+        } else if (curr_node_size == curr_thread_size) {
+          CHECK_LT(curr_node_id, smallest.size());
+          threads_work[i].push_back({curr_node_id,
+                                    node_full_size - curr_node_size,
+                                    node_full_size - curr_node_size + curr_thread_size});
+          curr_node_id++;//= (curr_node_id < (nthreads - 1));
+          curr_node_size = node_full_size;
+          curr_thread_size = 0;
+        } else {
+          CHECK_LT(curr_node_id, smallest.size());
+          threads_work[i].push_back({curr_node_id,
+                                    node_full_size - curr_node_size,
+                                    node_full_size});
+          curr_thread_size -= curr_node_size;
+          curr_node_id++;//(curr_node_id < (nthreads - 1));
+          curr_node_size = node_full_size;
+        }
+      }
+      curr_thread_size = std::min(block_size, summ_size_bin > block_size*(i+1) ? summ_size_bin - block_size*(i+1) : 0);
+    }
+#pragma omp parallel num_threads(nthreads)
+  {
+      size_t tid = omp_get_thread_num();
+      for(size_t i = 0; i < threads_work[tid].size(); ++i) {
+        const size_t begin = threads_work[tid][i].b * 2;
+        const size_t end = threads_work[tid][i].e * 2;
+
+        const int32_t nid_c = compleate_trees_depth_wise_[smallest[threads_work[tid][i].node_id]];
+        const int32_t nid = qexpand_depth_wise_[smallest[threads_work[tid][i].node_id]].nid;
+        GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
+        for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+          dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
+        }
+        for (size_t tid = 1; tid < nthreads; ++tid) {
+          for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+            dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
+          }
+        }
+      }
   }
-}
+//}
+
+
+  // for (size_t i = 0; i < smallest.size(); ++i) {
+  //  const int32_t nid_c = compleate_trees_depth_wise_[smallest[i]];
+  //  const int32_t nid = qexpand_depth_wise_[smallest[i]].nid;
+  //   GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
+  //   for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
+  //     dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
+  //   }
+  //   for (size_t tid = 1; tid < nthreads; ++tid) {
+  //     for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
+  //       dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
+  //     }
+  //   }
+  // }
+#pragma omp parallel num_threads(nthreads)
+  {
+      size_t tid = omp_get_thread_num();
+      for(size_t i = 0; i < threads_work[tid].size(); ++i) {
+        const size_t begin = threads_work[tid][i].b * 2;
+        const size_t end = threads_work[tid][i].e * 2;
+
+        const int32_t small_nid = qexpand_depth_wise_[smallest[threads_work[tid][i].node_id]].nid;
+        const int32_t largest_nid = qexpand_depth_wise_[smallest[threads_work[tid][i].node_id]].sibling_nid;
+        const size_t parent_id = (*p_tree)[small_nid].Parent();
+
+        GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[largest_nid].data());
+        GradientSumT* parent_hist = reinterpret_cast< GradientSumT*>(hist_[parent_id].data());
+        GradientSumT* small_hist = reinterpret_cast< GradientSumT*>(hist_[small_nid].data());
+        for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+          dest_hist[bin_id] = parent_hist[bin_id] - small_hist[bin_id];
+        }
+      }
+  }
+
+
+CHECK_EQ(smallest.size(), largest.size());
+// for(size_t i = 0; i < largest.size(); ++i) {
+//   const int32_t small_nid = qexpand_depth_wise_[smallest[i]].nid;
+//   const int32_t largest_nid = qexpand_depth_wise_[smallest[i]].sibling_nid;
+//   const size_t parent_id = (*p_tree)[small_nid].Parent();
+
+//   GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[largest_nid].data());
+//   GradientSumT* parent_hist = reinterpret_cast< GradientSumT*>(hist_[parent_id].data());
+//   GradientSumT* small_hist = reinterpret_cast< GradientSumT*>(hist_[small_nid].data());
+//   for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
+//     dest_hist[bin_id] = parent_hist[bin_id] - small_hist[bin_id];
+//   }
+// }
 
 }
 }
