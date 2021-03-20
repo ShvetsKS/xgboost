@@ -584,6 +584,10 @@ void JustPartitionLastLayer(const size_t row_indices_begin,
     continue;
     }
     if((((uint64_t)(1) << (nid%64)) & *(leafs_mask + (nid/64)))) {
+      // if(i == 43) {
+      //   std::cout << "nid: " << nid;
+      //   std::cout << " (*prev_level_nodes)[nid]: " << (*prev_level_nodes)[nid] << std::endl;
+      // }
       nodes_ids[i] = (uint16_t)(1) << 15;
       nodes_ids[i] |= (uint16_t)((*prev_level_nodes)[nid]);
       continue;
@@ -592,6 +596,10 @@ void JustPartitionLastLayer(const size_t row_indices_begin,
       const uint8_t* gr_index_local = gradient_index + icol_start;
       const int32_t sc = (*split_conditions)[nid + 1];
       const bst_uint si = (*split_ind)[nid + 1];
+    // if(i == 43) {
+    //   std::cout << "nid: " << nid;
+    //   std::cout << "sc: " << sc << " si: " << si << std::endl;
+    // }
       nodes_ids[i] = (uint16_t)(1) << 15;
 
       nodes_ids[i] |= (uint16_t)((*curr_level_nodes)[2*nid + !(((int32_t)(gr_index_local[si]) + (int32_t)(offsets[si])) <= sc)]);
@@ -1382,7 +1390,7 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
         (param_.max_leaves > 0 && (*num_leaves) == param_.max_leaves)) {
      // std::cout << " construct leaf :(" << i << ") ";
       (*p_tree)[nid].SetLeaf(snode_[nid].weight * param_.learning_rate);
-      *(leaf_mask + i/64) |= ((uint64_t)(1) << (compleate_trees_depth_wise_[i] % 64));
+      *(leaf_mask + compleate_trees_depth_wise_[i]/64) |= ((uint64_t)(1) << (compleate_trees_depth_wise_[i] % 64));
     } else {
     //  std::cout << " construct split :{" << i << ") ";
       nodes_for_apply_split->push_back(entry);
@@ -1502,11 +1510,11 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
 
 static uint64_t n_call = 0;
 ++n_call;
-  if(n_call == 94) {
-    std::cout << std::endl;
-      std::cout << gpair_h[43] << "   ";// 0.67698/0.218678
-    std::cout << std::endl;
-  }
+  // if(n_call == 94) {
+  //   std::cout << std::endl;
+  //     std::cout << gpair_h[43] << "   ";// 0.67698/0.218678
+  //   std::cout << std::endl;
+  // }
   for (int depth = 0; depth < param_.max_depth + 1; depth++) {
     int starting_index = std::numeric_limits<int>::max();
     int sync_count = 0;
@@ -1742,13 +1750,13 @@ static int n_call = 0;
         CHECK((*p_last_tree_)[nid].IsLeaf());
       }
       leaf_value = (*p_last_tree_)[nid].LeafValue();
-// if(it == 764 && n_call == 174) {
+// if(it == 43 && n_call == 93) {
 //   std::cout << "leaf_value: " << leaf_value << " nid: " << nid << " old out_preds[it]: " << out_preds[it] << std::endl;
 // }
       out_preds[it] += leaf_value;
      // gpair_h_ptr[it] = common::Sigmoid(out_preds[it]) - labels[it];
       // + 1*common::Sigmoid(out_preds[it]);
-// if(it == 764 && n_call == 174) {
+// if(it == 43 && n_call == 93) {
 //   std::cout << " new out_preds[it]: " << out_preds[it] << std::endl;
 // }
     }
