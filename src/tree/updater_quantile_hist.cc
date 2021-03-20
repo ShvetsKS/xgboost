@@ -257,7 +257,6 @@ void BatchHistRowsAdder<GradientSumT>::AddHistRows(BuilderT *builder,
                                                    int *starting_index,
                                                    int *sync_count,
                                                    RegTree *) {
-  builder->builder_monitor_.Start("AddHistRows");
   for (auto const& entry : builder->nodes_for_explicit_hist_build_) {
     int nid = entry.nid;
     builder->hist_.AddHistRow(nid);
@@ -268,6 +267,7 @@ void BatchHistRowsAdder<GradientSumT>::AddHistRows(BuilderT *builder,
   for (auto const& node : builder->nodes_for_subtraction_trick_) {
     builder->hist_.AddHistRow(node.nid);
   }
+  builder->builder_monitor_.Start("AddHistRows");
 
   builder->hist_.AllocateAllData();
   builder->builder_monitor_.Stop("AddHistRows");
@@ -450,21 +450,21 @@ for(size_t i = 0; i < n_features; ++i) {
       VECTOR_UNR(10, 0);
       VECTOR_UNR(11, 0);
       VECTOR_UNR(12, 0);
-      VECTOR_UNR(13, 0);
-      VECTOR_UNR(14, 0);
-      VECTOR_UNR(15, 0);
-      VECTOR_UNR(16, 0);
-      VECTOR_UNR(17, 0);
-      VECTOR_UNR(18, 0);
-      VECTOR_UNR(19, 0);
-      VECTOR_UNR(20, 0);
-      VECTOR_UNR(21, 0);
-      VECTOR_UNR(22, 0);
-      VECTOR_UNR(23, 0);
-      VECTOR_UNR(24, 0);
-      VECTOR_UNR(25, 0);
-      VECTOR_UNR(26, 0);
-      VECTOR_UNR(27, 0);
+      // VECTOR_UNR(13, 0);
+      // VECTOR_UNR(14, 0);
+      // VECTOR_UNR(15, 0);
+      // VECTOR_UNR(16, 0);
+      // VECTOR_UNR(17, 0);
+      // VECTOR_UNR(18, 0);
+      // VECTOR_UNR(19, 0);
+      // VECTOR_UNR(20, 0);
+      // VECTOR_UNR(21, 0);
+      // VECTOR_UNR(22, 0);
+      // VECTOR_UNR(23, 0);
+      // VECTOR_UNR(24, 0);
+      // VECTOR_UNR(25, 0);
+      // VECTOR_UNR(26, 0);
+      // VECTOR_UNR(27, 0);
   }
 }
 
@@ -708,21 +708,21 @@ if (row_size > Prefetch1::kPrefetchOffset) {
       VECTOR_UNR(10, 0);
       VECTOR_UNR(11, 0);
       VECTOR_UNR(12, 0);
-      VECTOR_UNR(13, 0);
-      VECTOR_UNR(14, 0);
-      VECTOR_UNR(15, 0);
-      VECTOR_UNR(16, 0);
-      VECTOR_UNR(17, 0);
-      VECTOR_UNR(18, 0);
-      VECTOR_UNR(19, 0);
-      VECTOR_UNR(20, 0);
-      VECTOR_UNR(21, 0);
-      VECTOR_UNR(22, 0);
-      VECTOR_UNR(23, 0);
-      VECTOR_UNR(24, 0);
-      VECTOR_UNR(25, 0);
-      VECTOR_UNR(26, 0);
-      VECTOR_UNR(27, 0);
+      // VECTOR_UNR(13, 0);
+      // VECTOR_UNR(14, 0);
+      // VECTOR_UNR(15, 0);
+      // VECTOR_UNR(16, 0);
+      // VECTOR_UNR(17, 0);
+      // VECTOR_UNR(18, 0);
+      // VECTOR_UNR(19, 0);
+      // VECTOR_UNR(20, 0);
+      // VECTOR_UNR(21, 0);
+      // VECTOR_UNR(22, 0);
+      // VECTOR_UNR(23, 0);
+      // VECTOR_UNR(24, 0);
+      // VECTOR_UNR(25, 0);
+      // VECTOR_UNR(26, 0);
+      // VECTOR_UNR(27, 0);
   }
 
 for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
@@ -752,21 +752,21 @@ for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
     VECTOR_UNR(10, 0);
     VECTOR_UNR(11, 0);
     VECTOR_UNR(12, 0);
-      VECTOR_UNR(13, 0);
-      VECTOR_UNR(14, 0);
-      VECTOR_UNR(15, 0);
-      VECTOR_UNR(16, 0);
-      VECTOR_UNR(17, 0);
-      VECTOR_UNR(18, 0);
-      VECTOR_UNR(19, 0);
-      VECTOR_UNR(20, 0);
-      VECTOR_UNR(21, 0);
-      VECTOR_UNR(22, 0);
-      VECTOR_UNR(23, 0);
-      VECTOR_UNR(24, 0);
-      VECTOR_UNR(25, 0);
-      VECTOR_UNR(26, 0);
-      VECTOR_UNR(27, 0);
+      // VECTOR_UNR(13, 0);
+      // VECTOR_UNR(14, 0);
+      // VECTOR_UNR(15, 0);
+      // VECTOR_UNR(16, 0);
+      // VECTOR_UNR(17, 0);
+      // VECTOR_UNR(18, 0);
+      // VECTOR_UNR(19, 0);
+      // VECTOR_UNR(20, 0);
+      // VECTOR_UNR(21, 0);
+      // VECTOR_UNR(22, 0);
+      // VECTOR_UNR(23, 0);
+      // VECTOR_UNR(24, 0);
+      // VECTOR_UNR(25, 0);
+      // VECTOR_UNR(26, 0);
+      // VECTOR_UNR(27, 0);
   }
 
 } else {
@@ -799,21 +799,21 @@ for (size_t ri = row_size - Prefetch1::kPrefetchOffset; ri < row_size; ++ri) {
   VECTOR_UNR(10, 0);
   VECTOR_UNR(11, 0);
   VECTOR_UNR(12, 0);
-      VECTOR_UNR(13, 0);
-      VECTOR_UNR(14, 0);
-      VECTOR_UNR(15, 0);
-      VECTOR_UNR(16, 0);
-      VECTOR_UNR(17, 0);
-      VECTOR_UNR(18, 0);
-      VECTOR_UNR(19, 0);
-      VECTOR_UNR(20, 0);
-      VECTOR_UNR(21, 0);
-      VECTOR_UNR(22, 0);
-      VECTOR_UNR(23, 0);
-      VECTOR_UNR(24, 0);
-      VECTOR_UNR(25, 0);
-      VECTOR_UNR(26, 0);
-      VECTOR_UNR(27, 0);
+      // VECTOR_UNR(13, 0);
+      // VECTOR_UNR(14, 0);
+      // VECTOR_UNR(15, 0);
+      // VECTOR_UNR(16, 0);
+      // VECTOR_UNR(17, 0);
+      // VECTOR_UNR(18, 0);
+      // VECTOR_UNR(19, 0);
+      // VECTOR_UNR(20, 0);
+      // VECTOR_UNR(21, 0);
+      // VECTOR_UNR(22, 0);
+      // VECTOR_UNR(23, 0);
+      // VECTOR_UNR(24, 0);
+      // VECTOR_UNR(25, 0);
+      // VECTOR_UNR(26, 0);
+      // VECTOR_UNR(27, 0);
   }
 }
 
@@ -873,33 +873,33 @@ static size_t average_dist[] = {0,0,0,0,0,0,0,0,0};
     //return row_set_collection_[nid].Size();
     return gmat.row_ptr.size() - 1;
   }, 4096);
-  std::vector<GHistRowT> target_hists(n_nodes);
-  for (size_t i = 0; i < n_nodes; ++i) {
-    const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
-    target_hists[i] = hist_[nid];
-//    const bst_uint fid = tree[nid].SplitIndex();
-//    split_inds[i] = fid;
-  }
+//   std::vector<GHistRowT> target_hists(n_nodes);
+//   for (size_t i = 0; i < n_nodes; ++i) {
+//     const int32_t nid = nodes_for_explicit_hist_build_[i].nid;
+//     target_hists[i] = hist_[nid];
+// //    const bst_uint fid = tree[nid].SplitIndex();
+// //    split_inds[i] = fid;
+//   }
 
-  hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
+//   hist_buffer_.Reset(this->nthread_, n_nodes, space, target_hists);
   int nthreads = this->nthread_;
   const size_t num_blocks_in_space = space.Size();
   nthreads = std::min(nthreads, omp_get_max_threads());
   nthreads = std::max(nthreads, 1);
-if(depth < max_depth) {
-builder_monitor_.Start("!BuildHistPreparation!!!!!!");
+// if(depth < max_depth) {
+// builder_monitor_.Start("!BuildHistPreparation!!!!!!");
 
-#pragma omp parallel num_threads(nthreads)
-{
- const size_t tid = omp_get_thread_num();
- for (size_t i = 0; i < (1 << depth); ++i) {
-   for (size_t bin_id = 0; bin_id <  n_bins*2; ++bin_id) {
-     (*histograms)[tid][2*i*n_bins + bin_id] = 0;
-   }
- }
-}
-builder_monitor_.Stop("!BuildHistPreparation!!!!!!");
-}
+// #pragma omp parallel num_threads(nthreads)
+// {
+//  const size_t tid = omp_get_thread_num();
+//  for (size_t i = 0; i < (1 << depth); ++i) {
+//    for (size_t bin_id = 0; bin_id <  n_bins*2; ++bin_id) {
+//      (*histograms)[tid][2*i*n_bins + bin_id] = 0;
+//    }
+//  }
+// }
+// builder_monitor_.Stop("!BuildHistPreparation!!!!!!");
+// }
 
 builder_monitor_.Start("JustPartition!!!!!!");
             std::vector<std::vector<uint32_t>> vec(nthreads);
@@ -1182,13 +1182,16 @@ if(depth == 0) {
    GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
    for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
      dest_hist[bin_id] = (*histograms)[0][2*i*n_bins + bin_id];
+     (*histograms)[0][2*i*n_bins + bin_id] = 0;
    }
    for (size_t tid = 1; tid < nthreads; ++tid) {
      for (size_t bin_id = 0; bin_id < n_bins*2; ++bin_id) {
        dest_hist[bin_id] += (*histograms)[tid][2*i*n_bins + bin_id];
+       (*histograms)[tid][2*i*n_bins + bin_id] = 0;
      }
    }
   }
+
 } else {
 
   std::vector<size_t> smallest;
@@ -1269,10 +1272,12 @@ if(depth == 0) {
         GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
         for (size_t bin_id = begin; bin_id < end; ++bin_id) {
           dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
+          (*histograms)[0][2*nid_c*n_bins + bin_id] = 0;
         }
         for (size_t tid = 1; tid < nthreads; ++tid) {
           for (size_t bin_id = begin; bin_id < end; ++bin_id) {
             dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
+            (*histograms)[tid][2*nid_c*n_bins + bin_id] = 0;
           }
         }
       }
@@ -1471,15 +1476,15 @@ void QuantileHistMaker::Builder<GradientSumT>::SplitSiblings(
       const int32_t left_id = (*p_tree)[node.Parent()].LeftChild();
       const int32_t right_id = (*p_tree)[node.Parent()].RightChild();
 
-      if (nid == left_id && row_set_collection_[left_id ].Size() <
-                            row_set_collection_[right_id].Size()) {
-        small_siblings->push_back(entry);
-      } else if (nid == right_id && row_set_collection_[right_id].Size() <=
-                                    row_set_collection_[left_id ].Size()) {
-        small_siblings->push_back(entry);
-      } else {
+      // if (nid == left_id && row_set_collection_[left_id ].Size() <
+      //                       row_set_collection_[right_id].Size()) {
+      //   small_siblings->push_back(entry);
+      // } else if (nid == right_id && row_set_collection_[right_id].Size() <=
+      //                               row_set_collection_[left_id ].Size()) {
+      //   small_siblings->push_back(entry);
+      // } else {
         big_siblings->push_back(entry);
-      }
+      //}
     }
   }
   builder_monitor_.Stop("SplitSiblings");

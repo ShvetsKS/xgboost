@@ -426,11 +426,11 @@ class HistCollection {
 
   // initialize histogram collection
   void Init(uint32_t nbins) {
-    //if (nbins_ != nbins) {
+    if (nbins_ != nbins) {
       nbins_ = nbins;
       // quite expensive operation, so let's do this only once
       data_.clear();
-    //}
+    }
     row_ptr_.clear();
     n_nodes_added_ = 0;
   }
