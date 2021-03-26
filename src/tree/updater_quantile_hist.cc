@@ -391,6 +391,7 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
     if (snode_[nid].best.loss_chg < kRtEps ||
         (param_.max_depth > 0 && depth == param_.max_depth) ||
         (param_.max_leaves > 0 && (*num_leaves) == param_.max_leaves)) {
+          if (nid == 27) {std::cout << "27 node is leaf!" << std::endl;}
       (*p_tree)[nid].SetLeaf(snode_[nid].weight * param_.learning_rate);
     } else {
       nodes_for_apply_split->push_back(entry);
