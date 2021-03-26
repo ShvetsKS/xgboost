@@ -136,7 +136,9 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
       if (curent_bin_size == kUint8BinsTypeSize) {
         common::Span<uint8_t> index_data_span = {index.data<uint8_t>(),
                                                  n_index};
-        SetIndexData(index_data_span, batch_threads, batch, rbegin, nbins,
+        common::Span<uint8_t> index_data_span2 = {index.data2<uint8_t>(),
+                                                 n_index};
+        SetIndexData(index_data_span, index_data_span2, batch_threads, batch, rbegin, nbins,
                      [offsets](auto idx, auto j) {
                        return static_cast<uint8_t>(idx - offsets[j]);
                      });
@@ -144,7 +146,9 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
       } else if (curent_bin_size == kUint16BinsTypeSize) {
         common::Span<uint16_t> index_data_span = {index.data<uint16_t>(),
                                                   n_index};
-        SetIndexData(index_data_span, batch_threads, batch, rbegin, nbins,
+        common::Span<uint16_t> index_data_span2 = {index.data2<uint16_t>(),
+                                                  n_index};
+        SetIndexData(index_data_span, index_data_span2, batch_threads, batch, rbegin, nbins,
                      [offsets](auto idx, auto j) {
                        return static_cast<uint16_t>(idx - offsets[j]);
                      });
@@ -152,7 +156,9 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
         CHECK_EQ(curent_bin_size, kUint32BinsTypeSize);
         common::Span<uint32_t> index_data_span = {index.data<uint32_t>(),
                                                   n_index};
-        SetIndexData(index_data_span, batch_threads, batch, rbegin, nbins,
+        common::Span<uint32_t> index_data_span2 = {index.data2<uint32_t>(),
+                                                  n_index};
+        SetIndexData(index_data_span, index_data_span2, batch_threads, batch, rbegin, nbins,
                      [offsets](auto idx, auto j) {
                        return static_cast<uint32_t>(idx - offsets[j]);
                      });
@@ -162,7 +168,8 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
        in index field to chose right offset. So offset is nullptr and index is not reduced */
     } else {
       common::Span<uint32_t> index_data_span = {index.data<uint32_t>(), n_index};
-      SetIndexData(index_data_span, batch_threads, batch, rbegin, nbins,
+      common::Span<uint32_t> index_data_span2 = {index.data2<uint32_t>(), n_index};
+      SetIndexData(index_data_span, index_data_span2, batch_threads, batch, rbegin, nbins,
                    [](auto idx, auto) { return idx; });
     }
 
@@ -539,36 +546,22 @@ struct Prefetch {
 
 constexpr size_t Prefetch::kNoPrefetchSize;
 
-#define UNR(IDX, J)                                                                                    \
-    const uint32_t idx_bin##IDX = two * (static_cast<uint32_t>(gr_index_local[13*J + IDX]) + offsets[13*J + IDX]); \
-    hist_data[idx_bin##IDX]   += pgh[idx_gh]; \
-    hist_data[idx_bin##IDX+1] += pgh[idx_gh+1];
-
-#define UNR_TAIL(IDX)                                                                                    \
-    const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[IDX]) + offsets[IDX]); \
-    hist_data[idx_bin]   += pgh[idx_gh]; \
-    hist_data[idx_bin+1] += pgh[idx_gh+1];
-
-
 template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                           const RowSetCollection::Elem row_indices,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<FPType> hist, const uint8_t* numa) {
+                          GHistRow<FPType> hist) {
   const size_t size = row_indices.Size();
   const size_t* rid = row_indices.begin;
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
-  const uint8_t* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const BinIdxType* gradient_index = gmat.index.data<BinIdxType>();
   const uint32_t* offsets = gmat.index.Offset();
   FPType* hist_data = reinterpret_cast<FPType*>(hist.data());
   const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
                            // 2 FP values: gradient and hessian.
                            // So we need to multiply each row-index/bin-index by 2
                            // to work with gradient pairs as a singe row FP array
-  const size_t nb = n_features / 13;
-  const size_t tail_size = n_features - nb*13;
-
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = rid[i] * n_features;
     const size_t idx_gh = two * rid[i];
@@ -582,40 +575,12 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
         PREFETCH_READ_T0(gradient_index + j);
       }
     }
-    const uint8_t* gr_index_local = gradient_index + icol_start;
-   // if (nb >= 1) {
-      UNR(0, 0);
-      UNR(1, 0);
-      UNR(2, 0);
-      UNR(3, 0);
-      UNR(4, 0);
-      UNR(5, 0);
-      UNR(6, 0);
-      UNR(7, 0);
-      UNR(8, 0);
-      UNR(9, 0);
-      UNR(10, 0);
-      UNR(11, 0);
-      UNR(12, 0);
-    //}
-    // for (size_t ib = 1; ib < nb; ++ib) {
-    //   UNR(0, ib);
-    //   UNR(1, ib);
-    //   UNR(2, ib);
-    //   UNR(3, ib);
-    //   UNR(4, ib);
-    //   UNR(5, ib);
-    //   UNR(6, ib);
-    //   UNR(7, ib);
-    //   UNR(8, ib);
-    //   UNR(9, ib);
-    //   UNR(10, ib);
-    //   UNR(11, ib);
-    //   UNR(12, ib);
-    // }
-    // for(size_t j = n_features - tail_size;  j < n_features; ++j) {
-    //     UNR_TAIL(j);
-    // }
+    const BinIdxType* gr_index_local = gradient_index + icol_start;
+    for (size_t j = 0; j < n_features; ++j) {
+      const uint32_t idx_bin = two * gradient_index[j];
+      hist_data[idx_bin]   += pgh[idx_gh];
+      hist_data[idx_bin+1] += pgh[idx_gh+1];
+    }
   }
 }
 
@@ -662,12 +627,12 @@ void BuildHistSparseKernel(const std::vector<GradientPair>& gpair,
 template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
                      const RowSetCollection::Elem row_indices,
-                     const GHistIndexMatrix& gmat, GHistRow<FPType> hist, bool isDense, const uint8_t* numa) {
+                     const GHistIndexMatrix& gmat, GHistRow<FPType> hist, bool isDense) {
   if (isDense) {
     const size_t* row_ptr =  gmat.row_ptr.data();
     const size_t n_features = row_ptr[row_indices.begin[0]+1] - row_ptr[row_indices.begin[0]];
     BuildHistDenseKernel<FPType, do_prefetch, BinIdxType>(gpair, row_indices,
-                                                       gmat, n_features, hist, numa);
+                                                       gmat, n_features, hist);
   } else {
     BuildHistSparseKernel<FPType, do_prefetch>(gpair, row_indices,
                                                         gmat, hist);
@@ -677,20 +642,20 @@ void BuildHistDispatchKernel(const std::vector<GradientPair>& gpair,
 template<typename FPType, bool do_prefetch>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
                      const RowSetCollection::Elem row_indices,
-                     const GHistIndexMatrix& gmat, const bool isDense, GHistRow<FPType> hist, const uint8_t* numa) {
+                     const GHistIndexMatrix& gmat, const bool isDense, GHistRow<FPType> hist) {
   const bool is_dense = row_indices.Size() && isDense;
   switch (gmat.index.GetBinTypeSize()) {
     case kUint8BinsTypeSize:
       BuildHistDispatchKernel<FPType, do_prefetch, uint8_t>(gpair, row_indices,
-                                                            gmat, hist, is_dense, numa);
+                                                            gmat, hist, is_dense);
       break;
     case kUint16BinsTypeSize:
       BuildHistDispatchKernel<FPType, do_prefetch, uint16_t>(gpair, row_indices,
-                                                             gmat, hist, is_dense, numa);
+                                                             gmat, hist, is_dense);
       break;
     case kUint32BinsTypeSize:
       BuildHistDispatchKernel<FPType, do_prefetch, uint32_t>(gpair, row_indices,
-                                                             gmat, hist, is_dense, numa);
+                                                             gmat, hist, is_dense);
       break;
     default:
       CHECK(false);  // no default behavior
@@ -701,7 +666,7 @@ template <typename GradientSumT>
 void GHistBuilder<GradientSumT>::BuildHist(
     const std::vector<GradientPair> &gpair,
     const RowSetCollection::Elem row_indices, const GHistIndexMatrix &gmat,
-    GHistRowT hist, bool isDense, const uint8_t* numa) {
+    GHistRowT hist, bool isDense) {
   const size_t nrows = row_indices.Size();
   const size_t no_prefetch_size = Prefetch::NoPrefetchSize(nrows);
 
@@ -710,14 +675,14 @@ void GHistBuilder<GradientSumT>::BuildHist(
 
   if (contiguousBlock) {
     // contiguous memory access, built-in HW prefetching is enough
-    BuildHistKernel<GradientSumT, false>(gpair, row_indices, gmat, isDense, hist, numa);
+    BuildHistKernel<GradientSumT, false>(gpair, row_indices, gmat, isDense, hist);
   } else {
     const RowSetCollection::Elem span1(row_indices.begin, row_indices.end - no_prefetch_size);
     const RowSetCollection::Elem span2(row_indices.end - no_prefetch_size, row_indices.end);
 
-    BuildHistKernel<GradientSumT, true>(gpair, span1, gmat, isDense, hist, numa);
+    BuildHistKernel<GradientSumT, true>(gpair, span1, gmat, isDense, hist);
     // no prefetching to avoid loading extra memory
-    BuildHistKernel<GradientSumT, false>(gpair, span2, gmat, isDense, hist, numa);
+    BuildHistKernel<GradientSumT, false>(gpair, span2, gmat, isDense, hist);
   }
 }
 template
@@ -725,13 +690,13 @@ void GHistBuilder<float>::BuildHist(const std::vector<GradientPair>& gpair,
                              const RowSetCollection::Elem row_indices,
                              const GHistIndexMatrix& gmat,
                              GHistRow<float> hist,
-                             bool isDense, const uint8_t* numa);
+                             bool isDense);
 template
 void GHistBuilder<double>::BuildHist(const std::vector<GradientPair>& gpair,
                              const RowSetCollection::Elem row_indices,
                              const GHistIndexMatrix& gmat,
                              GHistRow<double> hist,
-                             bool isDense, const uint8_t* numa);
+                             bool isDense);
 
 template<typename GradientSumT>
 void GHistBuilder<GradientSumT>::BuildBlockHist(const std::vector<GradientPair>& gpair,

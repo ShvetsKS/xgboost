@@ -179,6 +179,10 @@ struct Index {
   T* data() const {  // NOLINT
     return static_cast<T*>(data_ptr_);
   }
+  template<typename T>
+  T* data2() const {  // NOLINT
+    return static_cast<T*>(data2_ptr_);
+  }
   uint32_t* Offset() const {
     return offset_ptr_;
   }
@@ -189,8 +193,20 @@ struct Index {
     return data_.size() / (binTypeSize_);
   }
   void Resize(const size_t nBytesData) {
-    data_.resize(nBytesData);
+
+    const size_t n_threads = omp_get_max_threads();
+    #pragma omp parallel num_threads(n_threads)
+    {
+      const size_t tid = omp_get_thread_num();
+      if (tid == 0) {
+        data_.resize(nBytesData, 0);
+      }
+      if (tid == (n_threads - 1)) {
+        data2_.resize(nBytesData, 0);
+      }
+    }
     data_ptr_ = reinterpret_cast<void*>(data_.data());
+    data2_ptr_ = reinterpret_cast<void*>(data2_.data());
   }
   void ResizeOffset(const size_t nDisps) {
     offset_.resize(nDisps);
@@ -218,8 +234,10 @@ struct Index {
   using Func = uint32_t (*)(void*, size_t);
 
   std::vector<uint8_t> data_;
+  std::vector<uint8_t> data2_;
   std::vector<uint32_t> offset_;  // size of this field is equal to number of features
   void* data_ptr_;
+  void* data2_ptr_;
   BinTypeSize binTypeSize_ {kUint8BinsTypeSize};
   size_t p_ {1};
   uint32_t* offset_ptr_ {nullptr};
@@ -249,7 +267,7 @@ struct GHistIndexMatrix {
 
   // specific method for sparse data as no posibility to reduce allocated memory
   template <typename BinIdxType, typename GetOffset>
-  void SetIndexData(common::Span<BinIdxType> index_data_span,
+  void SetIndexData(common::Span<BinIdxType> index_data_span, common::Span<BinIdxType> index_data_span2,
                     size_t batch_threads, const SparsePage &batch,
                     size_t rbegin, size_t nbins, GetOffset get_offset) {
     const xgboost::Entry *data_ptr = batch.data.HostVector().data();
@@ -257,6 +275,7 @@ struct GHistIndexMatrix {
     const size_t batch_size = batch.Size();
     CHECK_LT(batch_size, offset_vec.size());
     BinIdxType* index_data = index_data_span.data();
+    BinIdxType* index_data2 = index_data_span2.data();
 #pragma omp parallel for num_threads(batch_threads) schedule(static)
     for (omp_ulong i = 0; i < batch_size; ++i) {
       const int tid = omp_get_thread_num();
@@ -268,6 +287,7 @@ struct GHistIndexMatrix {
       for (bst_uint j = 0; j < inst.size(); ++j) {
         uint32_t idx = cut.SearchBin(inst[j]);
         index_data[ibegin + j] = get_offset(idx, j);
+        index_data2[ibegin + j] = index_data[ibegin + j];
         ++hit_count_tloc_[tid * nbins + idx];
       }
     }
@@ -672,7 +692,7 @@ class GHistBuilder {
                  const RowSetCollection::Elem row_indices,
                  const GHistIndexMatrix& gmat,
                  GHistRowT hist,
-                 bool isDense, const uint8_t* numa);
+                 bool isDense);
   // same, with feature grouping
   void BuildBlockHist(const std::vector<GradientPair>& gpair,
                       const RowSetCollection::Elem row_indices,
