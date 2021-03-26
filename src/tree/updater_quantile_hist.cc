@@ -391,7 +391,7 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
     if (snode_[nid].best.loss_chg < kRtEps ||
         (param_.max_depth > 0 && depth == param_.max_depth) ||
         (param_.max_leaves > 0 && (*num_leaves) == param_.max_leaves)) {
-          if (nid == 27) {std::cout << "27 node is leaf!" << std::endl;}
+          //if (nid == 27) {std::cout << "27 node is leaf!" << std::endl;}
       (*p_tree)[nid].SetLeaf(snode_[nid].weight * param_.learning_rate);
     } else {
       nodes_for_apply_split->push_back(entry);
@@ -647,12 +647,12 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
     return row_set_collection_[node].Size();
   }, 1024);
-  std::cout << "nod_id: "<< std::endl;
+  std::cout << "nod_id:"<< std::endl;
   size_t size = 0;
   for(size_t i = 0; i < n_nodes; ++i) {
     size += row_set_collection_[i].Size();
   }
-  std::cout << "size: "<< size << std::endl;
+  std::cout << "size:"<< size << std::endl;
 std::vector<int> node_ids(size);
   common::ParallelFor2d(space, this->nthread_, [&](size_t node, common::Range1d r) {
     const RowSetCollection::Elem rowset = row_set_collection_[node];
