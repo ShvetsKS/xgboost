@@ -670,7 +670,7 @@ std::vector<int> node_ids(size);
 
       for (const size_t* it = rowset.begin + r.begin(); it < rowset.begin + r.end(); ++it) {
         out_preds[*it] += leaf_value;
-        node_ids[*it] = nid;
+        node_ids[*it] = rowset.node_id;
       }
     }
   });
