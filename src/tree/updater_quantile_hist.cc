@@ -832,6 +832,11 @@ builder_monitor_.Start("JustPartition!!!!!!");
             for(size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
               curr_level_nodes[compleate_trees_depth_wise_[i]] = qexpand_depth_wise_[i].nid;
             }
+            // std::cout << "curr_" << depth <<" level_nodes: ";
+            // for(size_t i = 0; i < curr_level_nodes.size(); ++i) {
+            //   std::cout << curr_level_nodes[i] << "  ";
+            // }
+            // std::cout << std::endl;
 
             if(depth > 0) {
             if(depth < max_depth) {
@@ -929,7 +934,7 @@ builder_monitor_.Start("JustPartition!!!!!!");
                       size_t begin = chunck_size * tid;
                       size_t end = std::min(begin + chunck_size, num_blocks_in_space);
                       const size_t th_size = end > begin ? end - begin : 0;
-//                      vec_rows_[tid].resize(4096*th_size + 1, 0);
+                      vec_rows_[tid].resize(4096*th_size + 1, 0);
                       uint64_t local_time_alloc = 0;
                       uint32_t count = 0;
                       for (auto i = begin; i < end; i++) {
@@ -940,7 +945,6 @@ builder_monitor_.Start("JustPartition!!!!!!");
                       }
                       vec_rows_[tid][0] = count;
                   }
-
             }
 
 
@@ -1264,7 +1268,8 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
     if (snode_[nid].best.loss_chg < kRtEps ||
         (param_.max_depth > 0 && depth == param_.max_depth) ||
         (param_.max_leaves > 0 && (*num_leaves) == param_.max_leaves)) {
-     // std::cout << " construct leaf :(" << i << ") ";
+//          std::cout << "node " << nid << " is leaf!: " << compleate_trees_depth_wise_[i] << " depth: " << depth <<  std::endl;
+
       (*p_tree)[nid].SetLeaf(snode_[nid].weight * param_.learning_rate);
       *(leaf_mask + compleate_trees_depth_wise_[i]/64) |= ((uint64_t)(1) << (compleate_trees_depth_wise_[i] % 64));
     } else {
@@ -1540,13 +1545,16 @@ if(depth > 0) {
     DenseSync(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
 }
-
     EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
                    &temp_qexpand_depth, &tmp_compleate_trees_depth, leafs_mask, &split_values, &split_indexs, n_call);
     // clean up
     nodes_for_subtraction_trick_.clear();
     nodes_for_explicit_hist_build_.clear();
     if (temp_qexpand_depth.empty()) {
+      if (depth != param_.max_depth) {
+        BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, mask, n_call);
+        DensePartition<BinIdxType>(gmat, gmatb, p_tree, gpair_h, param_.max_depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+      }
       qexpand_depth_wise_.clear();
       compleate_trees_depth_wise_.clear();
       break;
