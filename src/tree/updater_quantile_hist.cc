@@ -1759,12 +1759,17 @@ static int n_call = 0;
     return node_ids_.size();
   }, 1024);
 
+std::cout << "nod_id:" << std::endl;
+std::cout << "size:" << node_ids_.size() << std::endl;
+std::vector<int> nod_ids(node_ids_.size());
+
   common::ParallelFor2d(space, this->nthread_, [&](size_t node, common::Range1d r) {
     for (size_t it = r.begin(); it <  r.end(); ++it) {
       bst_float leaf_value;
       // if a node is marked as deleted by the pruner, traverse upward to locate
       // a non-deleted leaf.
       int nid = (~((uint16_t)(1) << 15)) & node_ids_[it];
+      nod_ids[it] = nid;
       if ((*p_last_tree_)[nid].IsDeleted()) {
         while ((*p_last_tree_)[nid].IsDeleted()) {
           nid = (*p_last_tree_)[nid].Parent();
@@ -1783,6 +1788,11 @@ static int n_call = 0;
 // }
     }
   });
+
+for(size_t i = 0; i < nod_ids.size(); ++i) {
+  std::cout << nod_ids[i] << "  ";
+}
+std::cout << std::endl;
 
   builder_monitor_.Stop("UpdatePredictionCache");
   return true;
