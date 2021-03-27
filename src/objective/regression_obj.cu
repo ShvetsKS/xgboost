@@ -72,7 +72,7 @@ class RegLossObj : public ObjFunction {
     additional_input_.HostVector().begin()[1] = scale_pos_weight;
     additional_input_.HostVector().begin()[2] = is_null_weight;
 
-const size_t nthreads = 56;
+const size_t nthreads = omp_get_max_threads();
 const size_t block_size = ndata/nthreads + !!(ndata%nthreads);
 const bst_float* preds_ptr = preds.ConstHostVector().data();
 GradientPair* out_gpair_ptr = out_gpair->HostVector().data();

@@ -1667,7 +1667,6 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
     DMatrix *p_fmat, RegTree *p_tree) {
   builder_monitor_.Start("Update");
   const std::vector<GradientPair>& gpair_h = gpair->ConstHostVector();
-
   tree_evaluator_ =
       TreeEvaluator(param_, p_fmat->Info().num_col_, GenericParameter::kCpuId);
   interaction_constraints_.Reset();
@@ -1726,6 +1725,11 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
 
   std::vector<bst_float>& out_preds = p_out_preds->HostVector();
 
+  if (leaf_value_cache_.empty()) {
+    leaf_value_cache_.resize(p_last_tree_->param.num_nodes,
+                             std::numeric_limits<float>::infinity());
+  }
+
   CHECK_GT(out_preds.size(), 0U);
 
   size_t n_nodes = row_set_collection_.end() - row_set_collection_.begin();
@@ -1733,6 +1737,14 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
     return row_set_collection_[node].Size();
   }, 1024);
+
+size_t size = 0;
+for(size_t i = 0; i < n_nodes; ++i) {
+  size += row_set_collection_[i].Size();
+}
+std::cout << "nod_id:" << std::endl;
+std::cout << "size:" << size << std::endl;
+std::vector<int> nod_ids(size, 0);
 
   common::ParallelFor2d(space, this->nthread_, [&](size_t node, common::Range1d r) {
     const RowSetCollection::Elem rowset = row_set_collection_[node];
@@ -1751,9 +1763,15 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
 
       for (const size_t* it = rowset.begin + r.begin(); it < rowset.begin + r.end(); ++it) {
         out_preds[*it] += leaf_value;
+        nod_ids[*it] = rowset.node_id;
       }
     }
   });
+
+for(size_t i = 0; i < nod_ids.size(); ++i) {
+  std::cout << nod_ids[i] << "  ";
+}
+std::cout << std::endl;
   builder_monitor_.Stop("UpdatePredictionCache");
   return true;
 }
