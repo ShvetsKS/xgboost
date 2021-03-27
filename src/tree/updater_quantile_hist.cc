@@ -647,13 +647,13 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
   common::BlockedSpace2d space(n_nodes, [&](size_t node) {
     return row_set_collection_[node].Size();
   }, 1024);
-  std::cout << "nod_id:"<< std::endl;
+//  std::cout << "nod_id:"<< std::endl;
   size_t size = 0;
   for(size_t i = 0; i < n_nodes; ++i) {
     size += row_set_collection_[i].Size();
   }
-  std::cout << "size:"<< size << std::endl;
-std::vector<int> node_ids(size);
+  //std::cout << "size:"<< size << std::endl;
+//std::vector<int> node_ids(size);
   common::ParallelFor2d(space, this->nthread_, [&](size_t node, common::Range1d r) {
     const RowSetCollection::Elem rowset = row_set_collection_[node];
     if (rowset.begin != nullptr && rowset.end != nullptr) {
@@ -671,14 +671,14 @@ std::vector<int> node_ids(size);
 
       for (const size_t* it = rowset.begin + r.begin(); it < rowset.begin + r.end(); ++it) {
         out_preds[*it] += leaf_value;
-        node_ids[*it] = rowset.node_id;
+  //      node_ids[*it] = rowset.node_id;
       }
     }
   });
-for(size_t i = 0; i < node_ids.size(); ++i) {
-  std::cout << node_ids[i] << "  ";
-}
-  std::cout << std::endl;
+// for(size_t i = 0; i < node_ids.size(); ++i) {
+//   std::cout << node_ids[i] << "  ";
+//}
+//  std::cout << std::endl;
 
   builder_monitor_.Stop("UpdatePredictionCache");
   return true;
