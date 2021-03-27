@@ -1509,10 +1509,11 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWiseDense(
   std::vector<int32_t> split_values(1 << param_.max_depth + 1);
 //std::cout << "split_conditions.size(): " << split_values.size() << " split_ind.size(): " << split_indexs.size() << std::endl;
 
-    uint64_t leafs_mask[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    uint64_t leafs_mask[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 static uint64_t n_call = 0;
 ++n_call;
+//std::cout << "n_call: " << n_call << std::endl;
   // if(n_call == 94) {
   //   std::cout << std::endl;
   //     std::cout << gpair_h[43] << "   ";// 0.67698/0.218678
@@ -1530,23 +1531,35 @@ static uint64_t n_call = 0;
     SplitSiblings</*isDense*/ true>(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-    uint64_t mask[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    uint64_t mask[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 if(depth > 0) {
 
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, mask, n_call);
+  //  std::cout << "\n BuildNodeStats finished" << std::endl;
     DensePartition<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n DensePartition finished" << std::endl;
     BuildLocalHistogramsDense<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n BuildLocalHistogramsDense finished" << std::endl;
     DenseSync(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
-    leafs_mask[0] = 0; leafs_mask[1] = 0; leafs_mask[2] = 0; leafs_mask[3] = 0; leafs_mask[4] = 0; leafs_mask[5] = 0; leafs_mask[6] = 0; leafs_mask[7] = 0;
-    leafs_mask[8] = 0; leafs_mask[9] = 0; leafs_mask[10] = 0; leafs_mask[11] = 0; leafs_mask[12] = 0; leafs_mask[13] = 0; leafs_mask[14] = 0; leafs_mask[15] = 0;
+ //   std::cout << "\n DenseSync finished" << std::endl;
+    for(uint32_t i = 0; i < 64; ++i) {
+      leafs_mask[i] = 0;
+    }
+    // leafs_mask[0] = 0; leafs_mask[1] = 0; leafs_mask[2] = 0; leafs_mask[3] = 0; leafs_mask[4] = 0; leafs_mask[5] = 0; leafs_mask[6] = 0; leafs_mask[7] = 0;
+    // leafs_mask[8] = 0; leafs_mask[9] = 0; leafs_mask[10] = 0; leafs_mask[11] = 0; leafs_mask[12] = 0; leafs_mask[13] = 0; leafs_mask[14] = 0; leafs_mask[15] = 0;
 } else {
     DensePartition<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n 0DensePartition finished" << std::endl;
     BuildLocalHistogramsDense<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n 0BuildLocalHistogramsDense finished" << std::endl;
     DenseSync(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n 0DenseSync finished" << std::endl;
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
+  //  std::cout << "\n 0BuildNodeStats finished" << std::endl;
 }
     EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
                    &temp_qexpand_depth, &tmp_compleate_trees_depth, leafs_mask, &split_values, &split_indexs, n_call);
+   // std::cout << "\n EvaluateAndApplySplits finished depth: " << depth << std::endl;
     // clean up
     nodes_for_subtraction_trick_.clear();
     nodes_for_explicit_hist_build_.clear();
@@ -1567,6 +1580,7 @@ if(depth > 0) {
       temp_qexpand_depth.clear();
     }
   }
+  //std::cout << "ExpandWithDepth finished" << std::endl;
 }
 
 template<typename GradientSumT>
@@ -1685,13 +1699,16 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
       ExpandWithDepthWise(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
     }
   }
-
+//std::cout << "Pstats update??? : " << p_tree->param.num_nodes << std::endl;
   for (int nid = 0; nid < p_tree->param.num_nodes; ++nid) {
+//std::cout << "nid: " << nid << std::endl;
     p_tree->Stat(nid).loss_chg = snode_[nid].best.loss_chg;
     p_tree->Stat(nid).base_weight = snode_[nid].weight;
     p_tree->Stat(nid).sum_hess = static_cast<float>(snode_[nid].stats.GetHess());
   }
+//std::cout << "Pstats update??? finished" << std::endl;
   pruner_->Update(gpair, p_fmat, std::vector<RegTree*>{p_tree});
+//std::cout << "Pruner finished finished" << std::endl;
   builder_monitor_.Stop("Update");
 }
 
@@ -1767,9 +1784,9 @@ static int n_call = 0;
     return node_ids_.size();
   }, 1024);
 
-std::cout << "nod_id:" << std::endl;
-std::cout << "size:" << node_ids_.size() << std::endl;
-std::vector<int> nod_ids(node_ids_.size());
+//std::cout << "nod_id:" << std::endl;
+//std::cout << "size:" << node_ids_.size() << std::endl;
+//std::vector<int> nod_ids(node_ids_.size());
 
   common::ParallelFor2d(space, this->nthread_, [&](size_t node, common::Range1d r) {
     for (size_t it = r.begin(); it <  r.end(); ++it) {
@@ -1777,7 +1794,7 @@ std::vector<int> nod_ids(node_ids_.size());
       // if a node is marked as deleted by the pruner, traverse upward to locate
       // a non-deleted leaf.
       int nid = (~((uint16_t)(1) << 15)) & node_ids_[it];
-      nod_ids[it] = nid;
+  //    nod_ids[it] = nid;
       if ((*p_last_tree_)[nid].IsDeleted()) {
         while ((*p_last_tree_)[nid].IsDeleted()) {
           nid = (*p_last_tree_)[nid].Parent();
@@ -1797,10 +1814,10 @@ std::vector<int> nod_ids(node_ids_.size());
     }
   });
 
-for(size_t i = 0; i < nod_ids.size(); ++i) {
-  std::cout << nod_ids[i] << "  ";
-}
-std::cout << std::endl;
+// for(size_t i = 0; i < nod_ids.size(); ++i) {
+//   std::cout << nod_ids[i] << "  ";
+// }
+// std::cout << std::endl;
 
   builder_monitor_.Stop("UpdatePredictionCache");
   return true;
