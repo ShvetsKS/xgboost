@@ -156,24 +156,24 @@ void BatchHistSynchronizer<GradientSumT>::SyncHistograms(BuilderT *builder,
                                                          int,
                                                          RegTree *p_tree) {
   builder->builder_monitor_.Start("SyncHistograms");
-  // const size_t nbins = builder->hist_builder_.GetNumBins();
-  // common::BlockedSpace2d space(builder->nodes_for_explicit_hist_build_.size(), [&](size_t) {
-  //   return nbins;
-  // }, 1024);
+  const size_t nbins = builder->hist_builder_.GetNumBins();
+  common::BlockedSpace2d space(builder->nodes_for_explicit_hist_build_.size(), [&](size_t) {
+    return nbins;
+  }, 1024);
 
-  // common::ParallelFor2d(space, builder->nthread_, [&](size_t node, common::Range1d r) {
-  //   const auto& entry = builder->nodes_for_explicit_hist_build_[node];
-  //   auto this_hist = builder->hist_[entry.nid];
-  //   // Merging histograms from each thread into once
-  //   builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
+  common::ParallelFor2d(space, builder->nthread_, [&](size_t node, common::Range1d r) {
+    const auto& entry = builder->nodes_for_explicit_hist_build_[node];
+    auto this_hist = builder->hist_[entry.nid];
+    // Merging histograms from each thread into once
+    builder->hist_buffer_.ReduceHist(node, r.begin(), r.end());
 
-  //   if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
-  //     const size_t parent_id = (*p_tree)[entry.nid].Parent();
-  //     auto parent_hist = builder->hist_[parent_id];
-  //     auto sibling_hist = builder->hist_[entry.sibling_nid];
-  //     SubtractionHist(sibling_hist, parent_hist, this_hist, r.begin(), r.end());
-  //   }
-  // });
+    if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
+      const size_t parent_id = (*p_tree)[entry.nid].Parent();
+      auto parent_hist = builder->hist_[parent_id];
+      auto sibling_hist = builder->hist_[entry.sibling_nid];
+      SubtractionHist(sibling_hist, parent_hist, this_hist, r.begin(), r.end());
+    }
+  });
   builder->builder_monitor_.Stop("SyncHistograms");
 }
 
@@ -1738,13 +1738,13 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
     return row_set_collection_[node].Size();
   }, 1024);
 
-size_t size = 0;
-for(size_t i = 0; i < n_nodes; ++i) {
-  size += row_set_collection_[i].Size();
-}
-std::cout << "nod_id:" << std::endl;
-std::cout << "size:" << size << std::endl;
-std::vector<int> nod_ids(size, 0);
+// size_t size = 0;
+// for(size_t i = 0; i < n_nodes; ++i) {
+//   size += row_set_collection_[i].Size();
+// }
+// std::cout << "nod_id:" << std::endl;
+// std::cout << "size:" << size << std::endl;
+// std::vector<int> nod_ids(size, 0);
 
   common::ParallelFor2d(space, this->nthread_, [&](size_t node, common::Range1d r) {
     const RowSetCollection::Elem rowset = row_set_collection_[node];
@@ -1763,15 +1763,15 @@ std::vector<int> nod_ids(size, 0);
 
       for (const size_t* it = rowset.begin + r.begin(); it < rowset.begin + r.end(); ++it) {
         out_preds[*it] += leaf_value;
-        nod_ids[*it] = rowset.node_id;
+  //      nod_ids[*it] = rowset.node_id;
       }
     }
   });
 
-for(size_t i = 0; i < nod_ids.size(); ++i) {
-  std::cout << nod_ids[i] << "  ";
-}
-std::cout << std::endl;
+// for(size_t i = 0; i < nod_ids.size(); ++i) {
+//   std::cout << nod_ids[i] << "  ";
+// }
+// std::cout << std::endl;
   builder_monitor_.Stop("UpdatePredictionCache");
   return true;
 }
