@@ -975,6 +975,7 @@ void QuantileHistMaker::Builder<GradientSumT>::DenseSync(
   builder_monitor_.Start("BuildHistSync!!");
 
 if(depth == 0) {
+  builder_monitor_.Start("BuildHistSync: depth0");
   for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
    const int32_t nid = qexpand_depth_wise_[i].nid;
    //target_hists[i] = hist_[nid];
@@ -990,8 +991,10 @@ if(depth == 0) {
      }
    }
   }
+  builder_monitor_.Stop("BuildHistSync: depth0");
 
 } else if (depth < max_depth){
+  builder_monitor_.Start("BuildHistSync: preporation");
 
   std::vector<size_t> smallest;
   std::vector<size_t> largest;
@@ -1003,7 +1006,6 @@ if(depth == 0) {
      largest.push_back(i);
    }
   }
-
     const uint32_t summ_size_bin = n_bins*smallest.size();
     uint32_t block_size = summ_size_bin/nthreads + !!(summ_size_bin%nthreads);
     std::vector<std::vector<NodesBeginEnd>> threads_work(nthreads);
@@ -1039,6 +1041,11 @@ if(depth == 0) {
       }
       curr_thread_size = std::min(block_size, summ_size_bin > block_size*(i+1) ? summ_size_bin - block_size*(i+1) : 0);
     }
+  builder_monitor_.Stop("BuildHistSync: preporation");
+
+std::string depth_str = std::to_string(depth);
+  builder_monitor_.Start("BuildHistSync: depth " + depth_str);
+
 #pragma omp parallel num_threads(nthreads)
   {
       size_t tid = omp_get_thread_num();
@@ -1049,18 +1056,38 @@ if(depth == 0) {
         const int32_t nid_c = compleate_trees_depth_wise_[smallest[threads_work[tid][i].node_id]];
         const int32_t nid = qexpand_depth_wise_[smallest[threads_work[tid][i].node_id]].nid;
         GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
-        for (size_t bin_id = begin; bin_id < end; ++bin_id) {
-          dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
-          (*histograms)[0][2*nid_c*n_bins + bin_id] = 0;
+        const size_t block_size = 1024;
+        const size_t size = end > begin ? end - begin : 0;
+        const size_t n_blocks = size / block_size;
+        const size_t tail_size = size - n_blocks*block_size;
+        for (size_t block_id = 0; block_id < n_blocks; ++block_id) {
+          for (size_t bin_id = begin + block_id*block_size; bin_id < begin + (block_id+1)*block_size; ++bin_id) {
+            dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
+            (*histograms)[0][2*nid_c*n_bins + bin_id] = 0;
+          }
+          for (size_t tid = 1; tid < nthreads; ++tid) {
+            for (size_t bin_id = begin + block_id*block_size; bin_id < begin + (block_id+1)*block_size; ++bin_id) {
+              dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
+              (*histograms)[tid][2*nid_c*n_bins + bin_id] = 0;
+            }
+          }
         }
-        for (size_t tid = 1; tid < nthreads; ++tid) {
-          for (size_t bin_id = begin; bin_id < end; ++bin_id) {
-            dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
-            (*histograms)[tid][2*nid_c*n_bins + bin_id] = 0;
+        if (tail_size != 0) {
+          for (size_t bin_id = begin + n_blocks*block_size; bin_id < end; ++bin_id) {
+            dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
+            (*histograms)[0][2*nid_c*n_bins + bin_id] = 0;
+          }
+          for (size_t tid = 1; tid < nthreads; ++tid) {
+            for (size_t bin_id = begin + n_blocks*block_size; bin_id < end; ++bin_id) {
+              dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
+              (*histograms)[tid][2*nid_c*n_bins + bin_id] = 0;
+            }
           }
         }
       }
   }
+  builder_monitor_.Stop("BuildHistSync: depth " + depth_str);
+  builder_monitor_.Start("Subtrick: depth " + depth_str);
 #pragma omp parallel num_threads(nthreads)
   {
       size_t tid = omp_get_thread_num();
@@ -1080,6 +1107,7 @@ if(depth == 0) {
         }
       }
   }
+  builder_monitor_.Stop("Subtrick: depth " + depth_str);
 
 
 CHECK_EQ(smallest.size(), largest.size());
