@@ -577,7 +577,8 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
     }
     const BinIdxType* gr_index_local = gradient_index + icol_start;
     for (size_t j = 0; j < n_features; ++j) {
-      const uint32_t idx_bin = two * gradient_index[j];
+      const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[j]) +
+                                      offsets[j]);
       hist_data[idx_bin]   += pgh[idx_gh];
       hist_data[idx_bin+1] += pgh[idx_gh+1];
     }
