@@ -61,10 +61,11 @@ void QuantileHistMaker::Configure(const Args& args) {
 template<typename GradientSumT>
 void QuantileHistMaker::SetBuilder(std::unique_ptr<Builder<GradientSumT>>* builder,
                                    DMatrix *dmat) {
+  const bool is_optimized_branch = (dmat->IsDense() && param_.subsample >= 1 &&  param_.enable_feature_grouping <= 0);
   builder->reset(new Builder<GradientSumT>(
                 param_,
                 std::move(pruner_),
-                int_constraint_, dmat));
+                int_constraint_, dmat, is_optimized_branch));
   if (rabit::IsDistributed()) {
     (*builder)->SetHistSynchronizer(new DistributedHistSynchronizer<GradientSumT>());
     (*builder)->SetHistRowsAdder(new DistributedHistRowsAdder<GradientSumT>());
@@ -1676,7 +1677,7 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
     ExpandWithLossGuide(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
   } else {
     N_CALL = (param_.max_depth + 1) * 500;
-    if (data_layout_ == DataLayout::kDenseDataZeroBased && param_.subsample >= 1 &&  param_.enable_feature_grouping <= 0) {
+    if (is_optimized_branch_) {
       switch (gmat.index.GetBinTypeSize()) {
         case common::kUint8BinsTypeSize: {
           ExpandWithDepthWiseDense<uint8_t>(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
@@ -1951,7 +1952,7 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
     hist_builder_ = GHistBuilder<GradientSumT>(this->nthread_, nbins);
 
     std::vector<size_t>& row_indices = *row_set_collection_.Data();
-    if (data_layout_ != DataLayout::kDenseDataZeroBased || param_.enable_feature_grouping > 0 || param_.subsample < 1.0f) {
+    if (!is_optimized_branch_) {
       row_indices.resize(info.num_row_);
     }
     size_t* p_row_indices = row_indices.data();
@@ -1962,7 +1963,7 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
         << "Only uniform sampling is supported, "
         << "gradient-based sampling is only support by GPU Hist.";
       InitSampling(gpair, fmat, &row_indices);
-    } else if (data_layout_ != DataLayout::kDenseDataZeroBased || param_.enable_feature_grouping > 0) {
+    } else if (!is_optimized_branch_) {
       MemStackAllocator<bool, 128> buff(this->nthread_);
       bool* p_buff = buff.Get();
       std::fill(p_buff, p_buff + this->nthread_, false);

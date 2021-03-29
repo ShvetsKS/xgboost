@@ -205,12 +205,12 @@ class QuantileHistMaker: public TreeUpdater {
     explicit Builder(const TrainParam& param,
                      std::unique_ptr<TreeUpdater> pruner,
                      FeatureInteractionConstraintHost int_constraints_,
-                     DMatrix const* fmat)
+                     DMatrix const* fmat, const bool is_optimized_baranch)
       : param_(param),
         tree_evaluator_(param, fmat->Info().num_col_, GenericParameter::kCpuId),
         pruner_(std::move(pruner)),
         interaction_constraints_{std::move(int_constraints_)},
-        p_last_tree_(nullptr), p_last_fmat_(fmat) {
+        p_last_tree_(nullptr), p_last_fmat_(fmat), is_optimized_branch_(is_optimized_baranch) {
       builder_monitor_.Init("Quantile::Builder");
     }
     // update one tree, growing
@@ -536,6 +536,7 @@ class QuantileHistMaker: public TreeUpdater {
     rabit::Reducer<GradientPairT, GradientPairT::Reduce> histred_;
     std::unique_ptr<HistSynchronizer<GradientSumT>> hist_synchronizer_;
     std::unique_ptr<HistRowsAdder<GradientSumT>> hist_rows_adder_;
+    bool is_optimized_branch_ = false;
   };
   common::Monitor updater_monitor_;
 

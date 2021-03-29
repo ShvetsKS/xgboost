@@ -77,10 +77,12 @@ const size_t block_size = ndata/nthreads + !!(ndata%nthreads);
 const bst_float* preds_ptr = preds.ConstHostVector().data();
 GradientPair* out_gpair_ptr = out_gpair->HostVector().data();
 const bst_float* labels_ptr = info.labels_.ConstHostVector().data();
+std::vector<std::vector<uint64_t>> threads_checks(nthreads);
 if(is_null_weight) {
   #pragma omp parallel num_threads(nthreads)
   {
     const size_t tid = omp_get_thread_num();
+    threads_checks[tid].resize(1,0);
     const size_t begin = tid*block_size;
     const size_t end = std::min(ndata, begin + block_size);
     for(size_t idx = begin; idx < end; ++idx) {
@@ -89,6 +91,10 @@ if(is_null_weight) {
       bst_float label = labels_ptr[idx];
       if (label == 1.0f) {
         w *= scale_pos_weight;
+      }
+      if (!Loss::CheckLabel(label)) {
+        // If there is an incorrect label, the host code will know.
+        threads_checks[tid][0] = 1;
       }
       out_gpair_ptr[idx] = GradientPair(Loss::FirstOrderGradient(p, label) * w,
                                               Loss::SecondOrderGradient(p, label) * w);
@@ -100,6 +106,7 @@ if(is_null_weight) {
   #pragma omp parallel num_threads(nthreads)
   {
     const size_t tid = omp_get_thread_num();
+    threads_checks[tid].resize(1,0);
     const size_t begin = tid*block_size;
     const size_t end = std::min(ndata, begin + block_size);
     for(size_t idx = begin; idx < end; ++idx) {
@@ -109,11 +116,22 @@ if(is_null_weight) {
       if (label == 1.0f) {
         w *= scale_pos_weight;
       }
+      if (!Loss::CheckLabel(label)) {
+        // If there is an incorrect label, the host code will know.
+        threads_checks[tid][0] = 1;
+      }
       out_gpair_ptr[idx] = GradientPair(Loss::FirstOrderGradient(p, label) * w,
                                               Loss::SecondOrderGradient(p, label) * w);
     }
   }
 }
+uint64_t check_summ = 0;
+for(size_t tid = 0; tid < nthreads; ++tid) {
+  check_summ += threads_checks[tid][0];
+}
+    if (check_summ != 0) {
+      LOG(FATAL) << Loss::LabelErrorMsg();
+    }
     // common::Transform<>::Init([] XGBOOST_DEVICE(size_t _idx,
     //                        common::Span<float> _additional_input,
     //                        common::Span<GradientPair> _out_gpair,
