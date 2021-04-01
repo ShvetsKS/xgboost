@@ -632,14 +632,14 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
   }
 
   const size_t size_with_prefetch = row_size > Prefetch1::kPrefetchOffset ? row_size - Prefetch1::kPrefetchOffset : 0;
-  const size_t n_blocks = size_with_prefetch / 64 + !!(size_with_prefetch % 64);
-  const size_t n_feature_block = n_features / 14 + !!(n_features % 14);
-  CHECK_EQ(n_feature_block, 2);
+  const size_t n_blocks = size_with_prefetch / 1024 + !!(size_with_prefetch % 1024);
+  const size_t n_feature_block = n_features / 4 + !!(n_features % 4);
+//  CHECK_EQ(n_feature_block, 2);
   // CHECK_GE(n_blocks, 0);
   // TODO need template do_prefetch
   for (size_t block_id = 0; block_id < n_blocks; ++block_id) {
-    const size_t b = block_id*64;
-    const size_t e = std::min(b + 64, size_with_prefetch);
+    const size_t b = block_id*1024;
+    const size_t e = std::min(b + 1024, size_with_prefetch);
     // handle first feature block!
     for (size_t ri = b; ri < e; ++ri) {
       const size_t i = rows[ri];
@@ -664,16 +664,16 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
         VECTOR_UNR(1, 0);
         VECTOR_UNR(2, 0);
         VECTOR_UNR(3, 0);
-        VECTOR_UNR(4, 0);
-        VECTOR_UNR(5, 0);
-        VECTOR_UNR(6, 0);
-        VECTOR_UNR(7, 0);
-        VECTOR_UNR(8, 0);
-        VECTOR_UNR(9, 0);
-        VECTOR_UNR(10, 0);
-        VECTOR_UNR(11, 0);
-        VECTOR_UNR(12, 0);
-        VECTOR_UNR(13, 0);
+        // VECTOR_UNR(4, 0);
+        // VECTOR_UNR(5, 0);
+        // VECTOR_UNR(6, 0);
+        // VECTOR_UNR(7, 0);
+        // VECTOR_UNR(8, 0);
+        // VECTOR_UNR(9, 0);
+        // VECTOR_UNR(10, 0);
+        // VECTOR_UNR(11, 0);
+        // VECTOR_UNR(12, 0);
+        // VECTOR_UNR(13, 0);
     }
     for (size_t fib = 1; fib < n_feature_block; ++fib) {
       for (size_t ri = b; ri < e; ++ri) {
@@ -687,8 +687,8 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
         const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
         asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
         double* hist_data = hist_data0 + nid*n_bins*2;
-        const size_t fb = fib*14;
-        const size_t fe = std::min(fb + 14, n_features);
+        const size_t fb = fib*4;
+        const size_t fe = std::min(fb + 4, n_features);
         for (size_t fi = fb; fi < fe; ++fi) {
           VECTOR_UNR(fi, 0);
         }
@@ -712,16 +712,16 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
         VECTOR_UNR(1, 0);
         VECTOR_UNR(2, 0);
         VECTOR_UNR(3, 0);
-        VECTOR_UNR(4, 0);
-        VECTOR_UNR(5, 0);
-        VECTOR_UNR(6, 0);
-        VECTOR_UNR(7, 0);
-        VECTOR_UNR(8, 0);
-        VECTOR_UNR(9, 0);
-        VECTOR_UNR(10, 0);
-        VECTOR_UNR(11, 0);
-        VECTOR_UNR(12, 0);
-        VECTOR_UNR(13, 0);
+        // VECTOR_UNR(4, 0);
+        // VECTOR_UNR(5, 0);
+        // VECTOR_UNR(6, 0);
+        // VECTOR_UNR(7, 0);
+        // VECTOR_UNR(8, 0);
+        // VECTOR_UNR(9, 0);
+        // VECTOR_UNR(10, 0);
+        // VECTOR_UNR(11, 0);
+        // VECTOR_UNR(12, 0);
+        // VECTOR_UNR(13, 0);
     }
     for (size_t fib = 1; fib < n_feature_block; ++fib) {
       for (size_t ri = size_with_prefetch; ri < row_size; ++ri) {
@@ -735,8 +735,8 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
         const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
         asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
         double* hist_data = hist_data0 + nid*n_bins*2;
-        const size_t fb = fib*14;
-        const size_t fe = std::min(fb + 14, n_features);
+        const size_t fb = fib*4;
+        const size_t fe = std::min(fb + 4, n_features);
         for (size_t fi = fb; fi < fe; ++fi) {
           VECTOR_UNR(fi, 0);
         }
