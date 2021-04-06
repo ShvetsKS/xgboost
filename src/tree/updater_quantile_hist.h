@@ -485,7 +485,8 @@ class QuantileHistMaker: public TreeUpdater {
     std::vector<std::vector<AddrBeginEnd>> threads_addr_;
     std::vector<int> prev_level_nodes_;
     std::vector<std::vector<GradientSumT>> histograms_;
-
+    std::vector<std::vector<uint64_t>> offsets64_;
+    std::vector<std::vector<uint16_t>> threads_id_for_nodes_;
     std::vector<uint16_t> node_ids_;
 //    std::vector<uint16_t> node_ids_global;
     // the temp space for split
