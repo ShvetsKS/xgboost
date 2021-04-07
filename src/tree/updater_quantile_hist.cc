@@ -575,32 +575,94 @@ void JustPartitionLastLayer(const size_t row_indices_begin,
   }
 }
 
+template<typename BinIdxType>
+void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, uint64_t* mask,
+                          uint64_t* leafs_mask, std::vector<int>* prev_level_nodes, uint32_t* nodes_count, const ColumnMatrix *column_matrix) {
+  const uint32_t rows_offset = gmat.row_ptr.size() - 1;
+  const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
+  const uint32_t* offsets = gmat.index.Offset();
+
+  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+    const uint32_t nid = nodes_ids[i];
+    if(((uint16_t)(1) << 15 & nid)) {
+      continue;
+    }
+    if((((uint64_t)(1) << (nid%64)) & *(leafs_mask + nid/64))) {
+      nodes_ids[i] = (uint16_t)(1) << 15;
+      nodes_ids[i] |= (uint16_t)((*prev_level_nodes)[nid]);
+      continue;
+    }
+    const int32_t sc = (*split_conditions)[nid + 1];
+    const bst_uint si = (*split_ind)[nid + 1];
+    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+
+    nodes_ids[i] = 2*nid + !(cmp_value <= sc);
+    if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask+nodes_ids[i]/64)) {
+      rows[++count] = i;
+      ++nodes_count[nodes_ids[i]];
+    }
+  }
+}
+
+
+template<typename BinIdxType>
+void JustPartitionLastLayerColumn(const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                          std::vector<int>* curr_level_nodes, uint64_t* leafs_mask, std::vector<int>* prev_level_nodes,
+                          const ColumnMatrix *column_matrix) {
+  const uint32_t rows_offset = gmat.row_ptr.size() - 1;
+  const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
+  const uint32_t* offsets = gmat.index.Offset();
+  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+    const uint32_t nid = nodes_ids[i];
+    if(((uint16_t)(1) << 15 & nid)) {
+      continue;
+    }
+    if((((uint64_t)(1) << (nid%64)) & *(leafs_mask + (nid/64)))) {
+      nodes_ids[i] = (uint16_t)(1) << 15;
+      nodes_ids[i] |= (uint16_t)((*prev_level_nodes)[nid]);
+      continue;
+    }
+    const int32_t sc = (*split_conditions)[nid + 1];
+    const bst_uint si = (*split_ind)[nid + 1];
+    nodes_ids[i] = (uint16_t)(1) << 15;
+    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    nodes_ids[i] |= (uint16_t)((*curr_level_nodes)[2*nid + !(cmp_value <= sc)]);
+  }
+}
 
 // sloow
+template<typename BinIdxType>
 void JustPartitionColumnar(const size_t row_indices_begin,
                           const size_t row_indices_end,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          uint32_t* hist, uint32_t* rows, uint32_t& count, const uint8_t* numa, uint16_t* nodes_ids,
-                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix) {
-  const uint8_t* gradient_index = numa;//gmat.index.data<BinIdxType>();
+                          uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                          uint64_t* mask, uint32_t* nodes_count,
+                          const ColumnMatrix *column_matrix) {
   const uint32_t* offsets = gmat.index.Offset();
-  const ColumnMatrix& column_matrix_ref = *column_matrix;
-  const auto column_ptr = column_matrix_ref.GetColumn<uint8_t>(0);
-//const common::DenseColumn<uint8_t>& column = static_cast<const common::DenseColumn<uint8_t>& >(*(column_ptr.get()));
-  const uint8_t* idx = column_ptr->GetFeatureBinIdxPtr().data();
+  const uint32_t rows_offset = gmat.row_ptr.size() - 1;
+  const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
 
   for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
     const uint32_t nid = nodes_ids[i];
     const int32_t sc = (*split_conditions)[nid + 1];
     const bst_uint si = (*split_ind)[nid + 1];
-const auto column_ptr = column_matrix_ref.GetColumn<uint8_t>(si);
-//const common::DenseColumn<uint8_t>& column = static_cast<const common::DenseColumn<uint8_t>& >(*(column_ptr.get()));
-  const uint32_t idx = column_ptr->GetFeatureBinIdxPtr().data()[i];
-    //t += 2*nid + !(((int32_t)(gr_index_local[si]) + (int32_t)(offsets[si])) <= sc);
-    // //count += i%2;
-    if (i%2) {
-     rows[++count] = idx;
+    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    nodes_ids[i] = 2*nid + !(cmp_value <= sc);
+    if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask + nodes_ids[i]/64)) {
+      rows[++count] = i;
+      ++nodes_count[nodes_ids[i]];
     }
   }
 
@@ -860,9 +922,9 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                       uint32_t count = 0;
                       for (auto i = begin; i < end; i++) {
                         common::Range1d r = space.GetRange(i);
-                        JustPartition(r.begin(), r.end(), gmat, n_features,
+                        JustPartitionColumnar(r.begin(), r.end(), gmat, n_features,
                                       nullptr, vec_rows_[tid].data(), count, numa,
-                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data());//, column_matrix);
+                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix);//, column_matrix);
                       }
                       vec_rows_[tid][0] = count;
                   }
@@ -883,9 +945,9 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                       uint32_t count = 0;
                       for (auto i = begin; i < end; i++) {
                         common::Range1d r = space.GetRange(i);
-                        JustPartitionWithLeafsMask(r.begin(), r.end(), gmat, n_features,
+                        JustPartitionWithLeafsMaskColumn(r.begin(), r.end(), gmat, n_features,
                                       nullptr, vec_rows_[tid].data(), count, numa,
-                                      nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data());
+                                      nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix);
 
                       }
                       //std::cout << "count: " << count << std::endl;
@@ -1049,9 +1111,9 @@ if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins) {
                       uint32_t count = 0;
                       for (auto i = begin; i < end; i++) {
                         common::Range1d r = space.GetRange(i);
-                        JustPartitionLastLayer(r.begin(), r.end(), gmat, n_features,
+                        JustPartitionLastLayerColumn(r.begin(), r.end(), gmat, n_features,
                                       nullptr, vec_rows_[tid].data(), count, numa,
-                                      nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_);
+                                      nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix);
                       }
                       vec_rows_[tid][0] = count;
                   }

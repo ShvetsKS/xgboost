@@ -326,6 +326,9 @@ class ColumnMatrix {
     return any_missing_;
   }
 
+  const uint8_t* GetIndexData() const {
+    return index_.data();
+  }
  private:
   std::vector<uint8_t> index_;
 
