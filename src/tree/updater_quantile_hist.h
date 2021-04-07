@@ -295,7 +295,7 @@ class QuantileHistMaker: public TreeUpdater {
                         const GHistIndexMatrix& gmat,
                         const ColumnMatrix& column_matrix,
                         const HistCollection<GradientSumT>& hist,
-                        RegTree* p_tree);
+                        RegTree* p_tree, int depth = 0);
 
     template <typename BinIdxType>
     void PartitionKernel(const size_t node_in_set, const size_t nid, common::Range1d range,

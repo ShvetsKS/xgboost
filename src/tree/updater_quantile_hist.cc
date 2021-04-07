@@ -432,7 +432,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
   std::vector<ExpandEntry> nodes_for_apply_split;
   AddSplitsToTree(gmat, p_tree, num_leaves, depth, timestamp,
                   &nodes_for_apply_split, temp_qexpand_depth);
-  ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree);
+  ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree, depth);
 }
 
 // Split nodes to 2 sets depending on amount of rows in each node
@@ -1188,8 +1188,10 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
                                             const GHistIndexMatrix& gmat,
                                             const ColumnMatrix& column_matrix,
                                             const HistCollection<GradientSumT>& hist,
-                                            RegTree* p_tree) {
-  builder_monitor_.Start("ApplySplit");
+                                            RegTree* p_tree, int depth) {
+  //int depth = p_tree->GetDepth(nodes[0].nid);
+  std::string depth_str = std::to_string(depth);
+  builder_monitor_.Start("ApplySplit-" + depth_str);
   // 1. Find split condition for each split
   const size_t n_nodes = nodes.size();
   std::vector<int32_t> split_conditions;
@@ -1244,7 +1246,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
   });
   // 5. Add info about splits into row_set_collection_
   AddSplitsToRowSet(nodes, p_tree);
-  builder_monitor_.Stop("ApplySplit");
+  builder_monitor_.Stop("ApplySplit-" + depth_str);
 }
 template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::InitNewNode(int nid,
