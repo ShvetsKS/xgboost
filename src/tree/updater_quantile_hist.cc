@@ -816,7 +816,8 @@ void QuantileHistMaker::Builder<GradientSumT>::DensePartition(
   const size_t num_blocks_in_space = space.Size();
   nthreads = std::min(nthreads, omp_get_max_threads());
   nthreads = std::max(nthreads, 1);
-builder_monitor_.Start("JustPartition!!!!!!");
+  std::string depth_str = std::to_string(depth);
+builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
             vec_rows_.resize(nthreads);
             static bool is_compleate_tree = true;
             if (depth == 0) {
@@ -1060,7 +1061,7 @@ if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins) {
             }
             prev_level_nodes_ = curr_level_nodes;
 
-builder_monitor_.Stop("JustPartition!!!!!!");
+builder_monitor_.Stop("JustPartition!!!!!!" + depth_str);
 }
 
 
