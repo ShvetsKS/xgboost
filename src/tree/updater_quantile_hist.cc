@@ -61,7 +61,7 @@ void QuantileHistMaker::Configure(const Args& args) {
 template<typename GradientSumT>
 void QuantileHistMaker::SetBuilder(std::unique_ptr<Builder<GradientSumT>>* builder,
                                    DMatrix *dmat) {
-  const bool is_optimized_branch = (dmat->IsDense() && param_.subsample >= 1 &&  param_.enable_feature_grouping <= 0);
+  const bool is_optimized_branch = (dmat->IsDense() && param_.enable_feature_grouping <= 0);
   builder->reset(new Builder<GradientSumT>(
                 param_,
                 std::move(pruner_),
@@ -381,13 +381,13 @@ constexpr size_t Prefetch1::kNoPrefetchSize;
     asm("vaddpd %xmm2, %xmm1, %xmm3;");                                                             \
     asm("vmovapd %%xmm3, (%0);" : : "r" ( offset##IDX ) : /*"%xmm3"*/);                 \
 
-template<typename BinIdxType>
+template<typename BinIdxType, bool no_sampling>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
                           const size_t row_indices_begin,
                           const size_t row_indices_end,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<double> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64) {
+                          GHistRow<double> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64, size_t* rows_ptr) {
   //const size_t size = row_indices.Size();
   //const size_t* rid = row_indices.begin;
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
@@ -408,7 +408,8 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
   //   offsets64[i] = (uint64_t)hist_data + 16*(uint64_t)(offsets[i]);
   // }
 
-  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const size_t i = no_sampling ? ii : rows_ptr[ii];
     nodes_ids[i] = 0;
     const size_t icol_start = i * n_features;
     const size_t idx_gh = two *i;
@@ -438,13 +439,13 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
 }
 
 
-template<typename BinIdxType>
+template<typename BinIdxType, bool no_sampling>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
                           const size_t row_indices_begin,
                           const size_t row_indices_end,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<float> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64) {
+                          GHistRow<float> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64, size_t* rows_ptr) {
   //const size_t size = row_indices.Size();
   //const size_t* rid = row_indices.begin;
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
@@ -458,7 +459,8 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
   const size_t nb = n_features / 13;
   const size_t tail_size = n_features - nb*13;
 
-  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const size_t i = no_sampling ? ii : rows_ptr[ii];
     nodes_ids[i] = 0;
     const size_t icol_start = i * n_features;
     const size_t idx_gh = two *i;
@@ -575,19 +577,20 @@ void JustPartitionLastLayer(const size_t row_indices_begin,
   }
 }
 
-template<typename BinIdxType>
+template<typename BinIdxType, bool no_sampling>
 void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
                           const size_t row_indices_end,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
                           std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, uint64_t* mask,
-                          uint64_t* leafs_mask, std::vector<int>* prev_level_nodes, uint32_t* nodes_count, const ColumnMatrix *column_matrix) {
+                          uint64_t* leafs_mask, std::vector<int>* prev_level_nodes, uint32_t* nodes_count, const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
   const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
   const uint32_t* offsets = gmat.index.Offset();
 
-  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const uint32_t i = no_sampling ? ii : row_indices_ptr[ii];
     const uint32_t nid = nodes_ids[i];
     if(((uint16_t)(1) << 15 & nid)) {
       continue;
@@ -610,7 +613,7 @@ void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
 }
 
 
-template<typename BinIdxType>
+template<typename BinIdxType, bool no_sampling>
 void JustPartitionLastLayerColumn(const size_t row_indices_begin,
                           const size_t row_indices_end,
                           const GHistIndexMatrix& gmat,
@@ -618,11 +621,12 @@ void JustPartitionLastLayerColumn(const size_t row_indices_begin,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
                           std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
                           std::vector<int>* curr_level_nodes, uint64_t* leafs_mask, std::vector<int>* prev_level_nodes,
-                          const ColumnMatrix *column_matrix) {
+                          const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
   const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
   const uint32_t* offsets = gmat.index.Offset();
-  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const uint32_t i = no_sampling ? ii : row_indices_ptr[ii];
     const uint32_t nid = nodes_ids[i];
     if(((uint16_t)(1) << 15 & nid)) {
       continue;
@@ -641,7 +645,7 @@ void JustPartitionLastLayerColumn(const size_t row_indices_begin,
 }
 
 // sloow
-template<typename BinIdxType>
+template<typename BinIdxType, bool no_sampling>
 void JustPartitionColumnar(const size_t row_indices_begin,
                           const size_t row_indices_end,
                           const GHistIndexMatrix& gmat,
@@ -649,12 +653,13 @@ void JustPartitionColumnar(const size_t row_indices_begin,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
                           std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
                           uint64_t* mask, uint32_t* nodes_count,
-                          const ColumnMatrix *column_matrix) {
+                          const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
   const uint32_t* offsets = gmat.index.Offset();
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
   const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
 
-  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const uint32_t i = no_sampling ? ii : row_indices_ptr[ii];
     const uint32_t nid = nodes_ids[i];
     const int32_t sc = (*split_conditions)[nid + 1];
     const bst_uint si = (*split_ind)[nid + 1];
@@ -872,7 +877,8 @@ void QuantileHistMaker::Builder<GradientSumT>::DensePartition(
     std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr) {
   const size_t n_features = gmat.cut.Ptrs().size() - 1;
   const size_t n_bins = gmat.cut.Ptrs().back();
-
+  std::vector<size_t>& row_indices = *row_set_collection_.Data();
+  const size_t* row_indices_ptr = row_indices.data();
   common::BlockedSpace2d& space = *space_ptr;
   int nthreads = this->nthread_;
   const size_t num_blocks_in_space = space.Size();
@@ -920,12 +926,21 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                     const size_t th_size = end > begin ? end - begin : 0;
                       vec_rows_[tid].resize(4096*th_size + 1, 0);
                       uint32_t count = 0;
+                    if(row_indices.size() == 0) {
                       for (auto i = begin; i < end; i++) {
                         common::Range1d r = space.GetRange(i);
-                        JustPartitionColumnar(r.begin(), r.end(), gmat, n_features,
+                        JustPartitionColumnar<BinIdxType, true>(r.begin(), r.end(), gmat, n_features,
                                       nullptr, vec_rows_[tid].data(), count, numa,
-                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix);//, column_matrix);
+                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);//, column_matrix);
                       }
+                    } else {
+                      for (auto i = begin; i < end; i++) {
+                        common::Range1d r = space.GetRange(i);
+                        JustPartitionColumnar<BinIdxType, false>(r.begin(), r.end(), gmat, n_features,
+                                      nullptr, vec_rows_[tid].data(), count, numa,
+                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);//, column_matrix);
+                      }
+                    }
                       vec_rows_[tid][0] = count;
                   }
               } else {
@@ -943,12 +958,20 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                     const size_t th_size = end > begin ? end - begin : 0;
                       vec_rows_[tid].resize(4096*th_size + 1, 0);
                       uint32_t count = 0;
-                      for (auto i = begin; i < end; i++) {
-                        common::Range1d r = space.GetRange(i);
-                        JustPartitionWithLeafsMaskColumn(r.begin(), r.end(), gmat, n_features,
-                                      nullptr, vec_rows_[tid].data(), count, numa,
-                                      nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix);
-
+                      if(row_indices.size() == 0) {
+                        for (auto i = begin; i < end; i++) {
+                          common::Range1d r = space.GetRange(i);
+                          JustPartitionWithLeafsMaskColumn<BinIdxType, true>(r.begin(), r.end(), gmat, n_features,
+                                        nullptr, vec_rows_[tid].data(), count, numa,
+                                        nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);
+                        }
+                      } else {
+                        for (auto i = begin; i < end; i++) {
+                          common::Range1d r = space.GetRange(i);
+                          JustPartitionWithLeafsMaskColumn<BinIdxType, false>(r.begin(), r.end(), gmat, n_features,
+                                        nullptr, vec_rows_[tid].data(), count, numa,
+                                        nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);
+                        }
                       }
                       //std::cout << "count: " << count << std::endl;
                       vec_rows_[tid][0] = count;
@@ -960,7 +983,7 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                   summ_size1 += vec_rows_[i][0];
                 }
 static std::vector<std::vector<uint32_t>> threads_rows_nodes_wise(nthreads);
-if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins) {
+if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins /*|| depth > 4*/) {
   threads_id_for_nodes_.resize(1 << max_depth);
   //std::cout << "\n no reason to read sequentialy!: " << depth << ":" <<  n_features*summ_size1 / nthreads << std::endl;
   std::vector<std::vector<int>> nodes_count(nthreads);
@@ -1109,11 +1132,20 @@ if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins) {
                       vec_rows_[tid].resize(4096*th_size + 1, 0);
                       uint64_t local_time_alloc = 0;
                       uint32_t count = 0;
-                      for (auto i = begin; i < end; i++) {
-                        common::Range1d r = space.GetRange(i);
-                        JustPartitionLastLayerColumn(r.begin(), r.end(), gmat, n_features,
-                                      nullptr, vec_rows_[tid].data(), count, numa,
-                                      nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix);
+                      if(row_indices.size() == 0) {
+                        for (auto i = begin; i < end; i++) {
+                          common::Range1d r = space.GetRange(i);
+                          JustPartitionLastLayerColumn<BinIdxType, true>(r.begin(), r.end(), gmat, n_features,
+                                        nullptr, vec_rows_[tid].data(), count, numa,
+                                        nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix, row_indices_ptr);
+                        }
+                      } else {
+                        for (auto i = begin; i < end; i++) {
+                          common::Range1d r = space.GetRange(i);
+                          JustPartitionLastLayerColumn<BinIdxType, false>(r.begin(), r.end(), gmat, n_features,
+                                        nullptr, vec_rows_[tid].data(), count, numa,
+                                        nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix, row_indices_ptr);
+                        }
                       }
                       vec_rows_[tid][0] = count;
                   }
@@ -1439,10 +1471,18 @@ if(depth < max_depth) {
           size_t begin = chunck_size * tid;
           size_t end = std::min(begin + chunck_size, num_blocks_in_space);
           uint64_t local_time_alloc = 0;
-          for (auto i = begin; i < end; i++) {
-            common::Range1d r = space.GetRange(i);
-            GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
-            BuildHistKernel<BinIdxType>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data());
+          if ((*row_set_collection_.Data()).size() == 0) {
+            for (auto i = begin; i < end; i++) {
+              common::Range1d r = space.GetRange(i);
+              GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+              BuildHistKernel<BinIdxType, true>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), nullptr);
+            }
+          } else {
+            for (auto i = begin; i < end; i++) {
+              common::Range1d r = space.GetRange(i);
+              GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+              BuildHistKernel<BinIdxType, false>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), (*row_set_collection_.Data()).data());
+            }
           }
       }
   } else {
@@ -1877,8 +1917,11 @@ static uint64_t n_call = 0;
   //     std::cout << gpair_h[43] << "   ";// 0.67698/0.218678
   //   std::cout << std::endl;
   // }
+  std::vector<size_t>& row_indices = *row_set_collection_.Data();
+  const size_t size_threads = row_indices.size() == 0 ? (gmat.row_ptr.size() - 1) : row_indices.size();
   common::BlockedSpace2d space(1, [&](size_t node) {
-      return gmat.row_ptr.size() - 1;
+     // return gmat.row_ptr.size() - 1;
+     return size_threads;
   }, 4096);
 
   for (int depth = 0; depth < param_.max_depth + 1; depth++) {
@@ -2309,7 +2352,8 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
     hist_builder_ = GHistBuilder<GradientSumT>(this->nthread_, nbins);
 
     std::vector<size_t>& row_indices = *row_set_collection_.Data();
-    if (!is_optimized_branch_) {
+
+    if (!is_optimized_branch_ || param_.subsample < 1.0f) {
       row_indices.resize(info.num_row_);
     }
     size_t* p_row_indices = row_indices.data();
