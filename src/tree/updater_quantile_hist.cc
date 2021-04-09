@@ -1919,6 +1919,9 @@ static uint64_t n_call = 0;
   // }
   std::vector<size_t>& row_indices = *row_set_collection_.Data();
   const size_t size_threads = row_indices.size() == 0 ? (gmat.row_ptr.size() - 1) : row_indices.size();
+  if (param_.subsample < 1.0f) {
+    CHECK_EQ(row_indices.size(), 0);
+  }
   common::BlockedSpace2d space(1, [&](size_t node) {
      // return gmat.row_ptr.size() - 1;
      return size_threads;
