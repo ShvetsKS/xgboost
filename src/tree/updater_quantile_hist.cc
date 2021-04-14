@@ -6,7 +6,6 @@
  */
 #include <dmlc/timer.h>
 #include <rabit/rabit.h>
-#include<stdio.h>
 #include <cmath>
 #include <memory>
 #include <vector>
@@ -104,6 +103,70 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
     const size_t n_elements = gmat_.index.Size();
     const uint8_t* data = gmat_.index.data<uint8_t>();
     const size_t n_bins = gmat_.cut.Ptrs().back();
+
+  // Allocate, initialize, and perform topology detection
+  hwloc_topology_init(&topology_);
+  hwloc_topology_load(topology_);
+
+  int nbcores = hwloc_get_nbobjs_by_type(topology_, HWLOC_OBJ_CORE);
+  printf("*** %u nbcores(s)\n", nbcores);
+  std::vector<char*> strs(n_threads,nullptr);
+  // look at initial state of bindings!
+  #pragma omp parallel num_threads(n_threads)
+  {
+    int tid = omp_get_thread_num();
+    hwloc_cpuset_t cpuset1 = hwloc_bitmap_alloc();//(hwloc_get_obj_by_type(topology_, HWLOC_OBJ_CORE, tid)->cpuset);
+    //std::cout << "hwloc_get_cpubind" << std::endl;
+    hwloc_get_cpubind(topology_, cpuset1, HWLOC_CPUBIND_THREAD);
+    //std::cout << "hwloc_get_cpubind finished" << std::endl;
+    hwloc_bitmap_asprintf(&(strs[tid]), cpuset1);
+    //std::cout << "hwloc_bitmap_asprintf" << std::endl;
+
+  }
+  // 0x0000ffff,0xffffffff,0xffffffff,0xffffffff for all!
+  for(size_t i = 0; i < nbcores; ++i) {
+    std::cout << "str" << i << ": " << strs[i] << std::endl;
+  }
+  #pragma omp parallel num_threads(n_threads)
+  {
+    int tid = omp_get_thread_num();
+    hwloc_obj_t obj = hwloc_get_obj_by_type(topology_, HWLOC_OBJ_CORE, tid);
+    if(obj) {
+      hwloc_cpuset_t cpuset = hwloc_bitmap_dup(obj->cpuset);
+      hwloc_bitmap_singlify(cpuset);
+      if(hwloc_set_cpubind(topology_, cpuset, HWLOC_CPUBIND_THREAD)) {
+        CHECK(false);
+      }
+    } else {
+        CHECK(false);
+    }
+  }
+
+
+  #pragma omp parallel num_threads(n_threads)
+  {
+    int tid = omp_get_thread_num();
+    hwloc_cpuset_t cpuset1 = hwloc_bitmap_alloc();//(hwloc_get_obj_by_type(topology_, HWLOC_OBJ_CORE, tid)->cpuset);
+    //std::cout << "hwloc_get_cpubind" << std::endl;
+    hwloc_get_cpubind(topology_, cpuset1, HWLOC_CPUBIND_THREAD);
+    //std::cout << "hwloc_get_cpubind finished" << std::endl;
+    hwloc_bitmap_asprintf(&(strs[tid]), cpuset1);
+    //std::cout << "hwloc_bitmap_asprintf" << std::endl;
+
+  }
+  // str0: 0x00000001
+  // str1: 0x00000002
+  // str2: 0x00000004
+  // str3: 0x00000008
+  // str4: 0x00000010
+  // str5: 0x00000020
+  // str6: 0x00000040
+  // str7: 0x00000080
+  for(size_t i = 0; i < nbcores; ++i) {
+    std::cout << "str" << i << ": " << strs[i] << std::endl;
+  }
+
+//omp_set_num_threads(nbcores);
   }
   // rescale learning rate according to size of trees
   float lr = param_.learning_rate;

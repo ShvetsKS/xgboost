@@ -138,6 +138,7 @@ if (FORCE_COLORED_OUTPUT AND (CMAKE_GENERATOR STREQUAL "Ninja") AND
 endif()
 
 find_package(Threads REQUIRED)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 
 if (USE_OPENMP)
   if (APPLE)
@@ -173,7 +174,7 @@ add_subdirectory(rabit)
 # core xgboost
 add_subdirectory(${xgboost_SOURCE_DIR}/src)
 target_link_libraries(objxgboost PUBLIC dmlc)
-
+target_link_libraries(objxgboost PUBLIC -lhwloc)
 # Exports some R specific definitions and objects
 if (R_LIB)
   add_subdirectory(${xgboost_SOURCE_DIR}/R-package)

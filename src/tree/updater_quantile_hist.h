@@ -10,6 +10,7 @@
 #include <dmlc/timer.h>
 #include <rabit/rabit.h>
 #include <xgboost/tree_updater.h>
+#include <hwloc.h>
 
 #include <memory>
 #include <vector>
@@ -113,6 +114,10 @@ class QuantileHistMaker: public TreeUpdater {
   QuantileHistMaker() {
     updater_monitor_.Init("QuantileHistMaker");
   }
+  // ~QuantileHistMaker() {
+  //     // Destroy topology object and return
+  //   hwloc_topology_destroy(topology_);
+  // }
   void Configure(const Args& args) override;
 
   void Update(HostDeviceVector<GradientPair>* gpair,
@@ -171,6 +176,7 @@ class QuantileHistMaker: public TreeUpdater {
   CPUHistMakerTrainParam hist_maker_param_;
   // training parameter
   TrainParam param_;
+  hwloc_topology_t topology_;
   // quantized data matrix
   GHistIndexMatrix gmat_;
   // (optional) data matrix with feature grouping
