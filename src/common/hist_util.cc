@@ -145,7 +145,9 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
       if (curent_bin_size == kUint8BinsTypeSize) {
         common::Span<uint8_t> index_data_span = {index.data<uint8_t>(),
                                                  n_index};
-        SetIndexData(index_data_span, batch_threads, batch, rbegin, nbins,
+        common::Span<uint8_t> index_data_span2 = {index.data2<uint8_t>(),
+                                                 n_index};
+        SetIndexData(index_data_span, index_data_span2, batch_threads, batch, rbegin, nbins,
                      [offsets](auto idx, auto j) {
                        return static_cast<uint8_t>(idx - offsets[j]);
                      });
@@ -153,7 +155,9 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
       } else if (curent_bin_size == kUint16BinsTypeSize) {
         common::Span<uint16_t> index_data_span = {index.data<uint16_t>(),
                                                   n_index};
-        SetIndexData(index_data_span, batch_threads, batch, rbegin, nbins,
+        common::Span<uint16_t> index_data_span2 = {index.data2<uint16_t>(),
+                                                  n_index};
+        SetIndexData(index_data_span, index_data_span2, batch_threads, batch, rbegin, nbins,
                      [offsets](auto idx, auto j) {
                        return static_cast<uint16_t>(idx - offsets[j]);
                      });
@@ -161,7 +165,9 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
         CHECK_EQ(curent_bin_size, kUint32BinsTypeSize);
         common::Span<uint32_t> index_data_span = {index.data<uint32_t>(),
                                                   n_index};
-        SetIndexData(index_data_span, batch_threads, batch, rbegin, nbins,
+        common::Span<uint32_t> index_data_span2 = {index.data2<uint32_t>(),
+                                                  n_index};
+        SetIndexData(index_data_span, index_data_span2, batch_threads, batch, rbegin, nbins,
                      [offsets](auto idx, auto j) {
                        return static_cast<uint32_t>(idx - offsets[j]);
                      });
@@ -171,7 +177,8 @@ void GHistIndexMatrix::Init(DMatrix* p_fmat, int max_bins) {
        in index field to chose right offset. So offset is nullptr and index is not reduced */
     } else {
       common::Span<uint32_t> index_data_span = {index.data<uint32_t>(), n_index};
-      SetIndexData(index_data_span, batch_threads, batch, rbegin, nbins,
+      common::Span<uint32_t> index_data_span2 = {index.data2<uint32_t>(), n_index};
+      SetIndexData(index_data_span, index_data_span2, batch_threads, batch, rbegin, nbins,
                    [](auto idx, auto) { return idx; });
     }
 
@@ -547,7 +554,6 @@ struct Prefetch {
 
 constexpr size_t Prefetch::kNoPrefetchSize;
 
-
 template<typename FPType, bool do_prefetch, typename BinIdxType>
 void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                           const RowSetCollection::Elem row_indices,
@@ -564,7 +570,6 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
                            // 2 FP values: gradient and hessian.
                            // So we need to multiply each row-index/bin-index by 2
                            // to work with gradient pairs as a singe row FP array
-
   for (size_t i = 0; i < size; ++i) {
     const size_t icol_start = rid[i] * n_features;
     const size_t idx_gh = two * rid[i];
@@ -582,7 +587,6 @@ void BuildHistDenseKernel(const std::vector<GradientPair>& gpair,
     for (size_t j = 0; j < n_features; ++j) {
       const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[j]) +
                                       offsets[j]);
-
       hist_data[idx_bin]   += pgh[idx_gh];
       hist_data[idx_bin+1] += pgh[idx_gh+1];
     }

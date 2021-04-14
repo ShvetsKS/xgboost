@@ -32,7 +32,7 @@ class QuantileHistMock : public QuantileHistMaker {
                 FeatureInteractionConstraintHost int_constraint,
                 DMatrix const* fmat)
         : RealImpl(param, std::move(pruner),
-          std::move(int_constraint), fmat) {}
+          std::move(int_constraint), fmat, false) {}
 
    public:
     void TestInitData(const GHistIndexMatrix& gmat,

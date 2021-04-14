@@ -7,6 +7,9 @@
 #include <dmlc/timer.h>
 #include <rabit/rabit.h>
 
+#include <cmath>
+#include <memory>
+#include <vector>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -29,6 +32,17 @@
 #include "../common/row_set.h"
 #include "../common/column_matrix.h"
 #include "../common/threading_utils.h"
+#include <fstream>
+#include <sys/time.h>
+#include <time.h>
+#if defined(XGBOOST_MM_PREFETCH_PRESENT)
+  #include <xmmintrin.h>
+  #define PREFETCH_READ_T0(addr) _mm_prefetch(reinterpret_cast<const char*>(addr), _MM_HINT_T0)
+#elif defined(XGBOOST_BUILTIN_PREFETCH_PRESENT)
+  #define PREFETCH_READ_T0(addr) __builtin_prefetch(reinterpret_cast<const char*>(addr), 0, 3)
+#else  // no SW pre-fetching available; PREFETCH_READ_T0 is no-op
+  #define PREFETCH_READ_T0(addr) do {} while (0)
+#endif  // defined(XGBOOST_MM_PREFETCH_PRESENT)
 
 namespace xgboost {
 namespace tree {
@@ -50,10 +64,11 @@ void QuantileHistMaker::Configure(const Args& args) {
 template<typename GradientSumT>
 void QuantileHistMaker::SetBuilder(std::unique_ptr<Builder<GradientSumT>>* builder,
                                    DMatrix *dmat) {
+  const bool is_optimized_branch = (dmat->IsDense() && param_.enable_feature_grouping <= 0);
   builder->reset(new Builder<GradientSumT>(
                 param_,
                 std::move(pruner_),
-                int_constraint_, dmat));
+                int_constraint_, dmat, is_optimized_branch));
   if (rabit::IsDistributed()) {
     (*builder)->SetHistSynchronizer(new DistributedHistSynchronizer<GradientSumT>());
     (*builder)->SetHistRowsAdder(new DistributedHistRowsAdder<GradientSumT>());
@@ -75,6 +90,7 @@ void QuantileHistMaker::CallBuilderUpdate(const std::unique_ptr<Builder<Gradient
 void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
                                DMatrix *dmat,
                                const std::vector<RegTree *> &trees) {
+  std::vector<GradientPair>& gpair_h = gpair->HostVector();
   if (dmat != p_last_dmat_ || is_gmat_initialized_ == false) {
     updater_monitor_.Start("GmatInitialization");
     gmat_.Init(dmat, static_cast<uint32_t>(param_.max_bin));
@@ -86,6 +102,11 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
     // A proper solution is puting cut matrix in DMatrix, see:
     // https://github.com/dmlc/xgboost/issues/5143
     is_gmat_initialized_ = true;
+    const size_t n_threads = omp_get_max_threads();
+    //    std::cout << "\nn_threads: " << n_threads << "\n";
+    const size_t n_elements = gmat_.index.Size();
+    const uint8_t* data = gmat_.index.data<uint8_t>();
+    const size_t n_bins = gmat_.cut.Ptrs().back();
   }
   // rescale learning rate according to size of trees
   float lr = param_.learning_rate;
@@ -111,25 +132,41 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
 
 bool QuantileHistMaker::UpdatePredictionCache(
     const DMatrix* data, HostDeviceVector<bst_float>* out_preds) {
-  if (hist_maker_param_.single_precision_histogram && float_builder_) {
-      return float_builder_->UpdatePredictionCache(data, out_preds);
-  } else if (double_builder_) {
-      return double_builder_->UpdatePredictionCache(data, out_preds);
-  } else {
-      return false;
+    if (hist_maker_param_.single_precision_histogram && float_builder_) {
+      if (data->IsDense() &&  param_.enable_feature_grouping <= 0) {
+        return float_builder_->UpdatePredictionCacheDense(data, out_preds);
+      } else{
+        return float_builder_->UpdatePredictionCache(data, out_preds);
+      }
+    } else if (double_builder_) {
+      if (data->IsDense() &&  param_.enable_feature_grouping <= 0) {
+        return double_builder_->UpdatePredictionCacheDense(data, out_preds);
+      } else{
+        return double_builder_->UpdatePredictionCache(data, out_preds);
+      }
+    } else {
+       return false;
+    }
   }
-}
 
 bool QuantileHistMaker::UpdatePredictionCacheMulticlass(
     const DMatrix* data,
     HostDeviceVector<bst_float>* out_preds, const int gid, const int ngroup) {
-  if (hist_maker_param_.single_precision_histogram && float_builder_) {
-      return float_builder_->UpdatePredictionCache(data, out_preds, gid, ngroup);
-  } else if (double_builder_) {
-      return double_builder_->UpdatePredictionCache(data, out_preds, gid, ngroup);
-  } else {
-      return false;
-  }
+    if (hist_maker_param_.single_precision_histogram && float_builder_) {
+      if (data->IsDense() && param_.enable_feature_grouping <= 0) {
+        return float_builder_->UpdatePredictionCacheDense(data, out_preds, gid, ngroup);
+      } else{
+        return float_builder_->UpdatePredictionCache(data, out_preds, gid, ngroup);
+      }
+    } else if (double_builder_) {
+      if (data->IsDense() && param_.enable_feature_grouping <= 0) {
+        return double_builder_->UpdatePredictionCacheDense(data, out_preds, gid, ngroup);
+      } else{
+        return double_builder_->UpdatePredictionCache(data, out_preds, gid, ngroup);
+      }
+    } else {
+       return false;
+    }
 }
 
 
@@ -230,8 +267,6 @@ void BatchHistRowsAdder<GradientSumT>::AddHistRows(BuilderT *builder,
                                                    int *starting_index,
                                                    int *sync_count,
                                                    RegTree *) {
-  builder->builder_monitor_.Start("AddHistRows");
-
   for (auto const& entry : builder->nodes_for_explicit_hist_build_) {
     int nid = entry.nid;
     builder->hist_.AddHistRow(nid);
@@ -242,6 +277,8 @@ void BatchHistRowsAdder<GradientSumT>::AddHistRows(BuilderT *builder,
   for (auto const& node : builder->nodes_for_subtraction_trick_) {
     builder->hist_.AddHistRow(node.nid);
   }
+  builder->builder_monitor_.Start("AddHistRows");
+
   builder->hist_.AllocateAllData();
   builder->builder_monitor_.Stop("AddHistRows");
 }
@@ -317,6 +354,1177 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
   BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
   hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
 }
+static size_t N_CALL = 0;
+uint64_t get_time() {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return t.tv_sec * 1000000000 + t.tv_nsec;
+}
+
+struct Prefetch1 {
+ public:
+  static constexpr size_t kCacheLineSize = 64;
+  static constexpr size_t kPrefetchOffset = 10;
+
+ private:
+  static constexpr size_t kNoPrefetchSize =
+      kPrefetchOffset + kCacheLineSize /
+      sizeof(decltype(GHistIndexMatrix::row_ptr)::value_type);
+
+ public:
+  static size_t NoPrefetchSize(size_t rows) {
+    return std::min(rows, kNoPrefetchSize);
+  }
+
+  template <typename T>
+  static constexpr size_t GetPrefetchStep() {
+    return Prefetch1::kCacheLineSize / sizeof(T);
+  }
+};
+
+constexpr size_t Prefetch1::kNoPrefetchSize;
+
+#define UNR(IDX, J)                                                                                    \
+    const uint32_t idx_bin##IDX = two * (static_cast<uint32_t>(gr_index_local[13*J + IDX]) + offsets[13*J + IDX]); \
+    hist_data[idx_bin##IDX]   += pgh[idx_gh]; \
+    hist_data[idx_bin##IDX+1] += pgh[idx_gh+1];
+
+#define UNR_TAIL(IDX)                                                                                    \
+    const uint32_t idx_bin = two * (static_cast<uint32_t>(gr_index_local[IDX]) + offsets[IDX]); \
+    hist_data[idx_bin]   += pgh[idx_gh]; \
+    hist_data[idx_bin+1] += pgh[idx_gh+1];
+
+#define VECTOR_UNR(IDX, J)                                                                                 \
+    const size_t offset##IDX = offsets64[IDX + 13*J] + ((size_t)(gr_index_local[IDX + 13*J])) * 16; \
+    asm("vmovapd (%0), %%xmm1;" : : "r" ( offset##IDX ) : /*"%xmm1"*/);                 \
+    asm("vaddpd %xmm2, %xmm1, %xmm3;");                                                             \
+    asm("vmovapd %%xmm3, (%0);" : : "r" ( offset##IDX ) : /*"%xmm3"*/);                 \
+
+template<typename BinIdxType, bool no_sampling, bool read_by_column>
+void BuildHistKernel(const std::vector<GradientPair>& gpair,
+                          const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          GHistRow<double> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64, size_t* rows_ptr, const ColumnMatrix *column_matrix) {
+if(read_by_column) {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const uint32_t* offsets = gmat.index.Offset();
+  double* hist_data = reinterpret_cast<double*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+      const BinIdxType* gr_index_local = (*column_matrix).GetColumn<BinIdxType>(0)->
+                                           GetFeatureBinIdxPtr().data();
+      double* hist_data_local = hist_data + two*(offsets[0]);
+      for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+        const size_t row_id = no_sampling ? ii : rows_ptr[ii];
+        nodes_ids[row_id] = 0;
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      }
+    for (size_t cid = 1; cid < n_features; ++cid) {
+      gr_index_local = (*column_matrix).GetColumn<BinIdxType>(cid)->
+                                           GetFeatureBinIdxPtr().data();
+      hist_data_local = hist_data + two*(offsets[cid]);
+      for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+        const size_t row_id = no_sampling ? ii : rows_ptr[ii];
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      }
+    }
+} else {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const uint32_t* offsets = gmat.index.Offset();
+  double* hist_data = reinterpret_cast<double*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+                           // 2 FP values: gradient and hessian.
+                           // So we need to multiply each row-index/bin-index by 2
+                           // to work with gradient pairs as a singe row FP array
+  const size_t nb = n_features / 13;
+  const size_t tail_size = n_features - nb*13;
+
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const size_t i = no_sampling ? ii : rows_ptr[ii];
+    nodes_ids[i] = 0;
+    const size_t icol_start = i * n_features;
+    const size_t idx_gh = two *i;
+    const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+    asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+
+    const BinIdxType* gr_index_local = gradient_index + icol_start;
+    for (size_t ib = 0; ib < nb; ++ib) {
+      VECTOR_UNR(0, ib);
+      VECTOR_UNR(1, ib);
+      VECTOR_UNR(2, ib);
+      VECTOR_UNR(3, ib);
+      VECTOR_UNR(4, ib);
+      VECTOR_UNR(5, ib);
+      VECTOR_UNR(6, ib);
+      VECTOR_UNR(7, ib);
+      VECTOR_UNR(8, ib);
+      VECTOR_UNR(9, ib);
+      VECTOR_UNR(10, ib);
+      VECTOR_UNR(11, ib);
+      VECTOR_UNR(12, ib);
+    }
+    for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
+        VECTOR_UNR(jb,0);
+    }
+  }
+}
+}
+
+
+template<typename BinIdxType, bool no_sampling, bool read_by_column>
+void BuildHistKernel(const std::vector<GradientPair>& gpair,
+                          const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          GHistRow<float> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64, size_t* rows_ptr, const ColumnMatrix *column_matrix) {
+if(read_by_column) {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const uint32_t* offsets = gmat.index.Offset();
+  float* hist_data = reinterpret_cast<float*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+      const BinIdxType* gr_index_local = (*column_matrix).GetColumn<BinIdxType>(0)->
+                                           GetFeatureBinIdxPtr().data();
+      float* hist_data_local = hist_data + two*(offsets[0]);
+      for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+        const size_t row_id = no_sampling ? ii : rows_ptr[ii];
+        nodes_ids[row_id] = 0;
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      }
+  for (size_t cid = 1; cid < n_features; ++cid) {
+      gr_index_local = (*column_matrix).GetColumn<BinIdxType>(cid)->
+                                           GetFeatureBinIdxPtr().data();
+      hist_data_local = hist_data + two*(offsets[cid]);
+      for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+        const size_t row_id = no_sampling ? ii : rows_ptr[ii];
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      }
+    }
+} else {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const uint32_t* offsets = gmat.index.Offset();
+  float* hist_data = reinterpret_cast<float*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+                           // 2 FP values: gradient and hessian.
+                           // So we need to multiply each row-index/bin-index by 2
+                           // to work with gradient pairs as a singe row FP array
+  const size_t nb = n_features / 13;
+  const size_t tail_size = n_features - nb*13;
+
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const size_t i = no_sampling ? ii : rows_ptr[ii];
+    nodes_ids[i] = 0;
+    const size_t icol_start = i * n_features;
+    const size_t idx_gh = two *i;
+    const BinIdxType* gr_index_local = gradient_index + icol_start;
+    for (size_t ib = 0; ib < nb; ++ib) {
+      UNR(0, ib);
+      UNR(1, ib);
+      UNR(2, ib);
+      UNR(3, ib);
+      UNR(4, ib);
+      UNR(5, ib);
+      UNR(6, ib);
+      UNR(7, ib);
+      UNR(8, ib);
+      UNR(9, ib);
+      UNR(10, ib);
+      UNR(11, ib);
+      UNR(12, ib);
+    }
+    for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
+      UNR(jb,0);
+    }
+  }
+}
+}
+
+template<typename BinIdxType>
+void JustPartition(const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, uint64_t* mask, uint32_t* nodes_count) {
+  // const size_t size = row_indices.Size();
+  // const size_t* rid = row_indices.begin;
+  const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const uint32_t* offsets = gmat.index.Offset();
+  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+    const uint32_t nid = nodes_ids[i];
+    const size_t icol_start = i * n_features;
+    const BinIdxType* gr_index_local = gradient_index + icol_start;
+    const int32_t sc = (*split_conditions)[nid + 1];
+    const bst_uint si = (*split_ind)[nid + 1];
+    nodes_ids[i] = 2*nid + !(((int32_t)(gr_index_local[si]) + (int32_t)(offsets[si])) <= sc);
+    if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask + nodes_ids[i]/64)) {
+      rows[++count] = i;
+      ++nodes_count[nodes_ids[i]];
+    }
+  }
+}
+
+
+template<typename BinIdxType>
+void JustPartitionWithLeafsMask(const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, uint64_t* mask,
+                          uint64_t* leafs_mask, std::vector<int>* prev_level_nodes, uint32_t* nodes_count) {
+  // const size_t size = row_indices.Size();
+  // const size_t* rid = row_indices.begin;
+  const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const uint32_t* offsets = gmat.index.Offset();
+
+  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+    const uint32_t nid = nodes_ids[i];
+    if(((uint16_t)(1) << 15 & nid)) {
+      continue;
+    }
+    if((((uint64_t)(1) << (nid%64)) & *(leafs_mask + nid/64))) {
+      nodes_ids[i] = (uint16_t)(1) << 15;
+      nodes_ids[i] |= (uint16_t)((*prev_level_nodes)[nid]);
+      continue;
+    }
+    const size_t icol_start = i * n_features;
+    const BinIdxType* gr_index_local = gradient_index + icol_start;
+    const int32_t sc = (*split_conditions)[nid + 1];
+    const bst_uint si = (*split_ind)[nid + 1];
+    nodes_ids[i] = 2*nid + !(((int32_t)(gr_index_local[si]) + (int32_t)(offsets[si])) <= sc);
+    if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask+nodes_ids[i]/64)) {
+      rows[++count] = i;
+      ++nodes_count[nodes_ids[i]];
+    }
+  }
+}
+
+
+template<typename BinIdxType>
+void JustPartitionLastLayer(const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                          std::vector<int>* curr_level_nodes, uint64_t* leafs_mask, std::vector<int>* prev_level_nodes) {
+  const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const uint32_t* offsets = gmat.index.Offset();
+  for (size_t i = row_indices_begin; i < row_indices_end; ++i) {
+    const uint32_t nid = nodes_ids[i];
+    if(((uint16_t)(1) << 15 & nid)) {
+    continue;
+    }
+    if((((uint64_t)(1) << (nid%64)) & *(leafs_mask + (nid/64)))) {
+      nodes_ids[i] = (uint16_t)(1) << 15;
+      nodes_ids[i] |= (uint16_t)((*prev_level_nodes)[nid]);
+      continue;
+    }
+      const size_t icol_start = i * n_features;
+      const BinIdxType* gr_index_local = gradient_index + icol_start;
+      const int32_t sc = (*split_conditions)[nid + 1];
+      const bst_uint si = (*split_ind)[nid + 1];
+      nodes_ids[i] = (uint16_t)(1) << 15;
+      nodes_ids[i] |= (uint16_t)((*curr_level_nodes)[2*nid + !(((int32_t)(gr_index_local[si]) + (int32_t)(offsets[si])) <= sc)]);
+  }
+}
+
+template<typename BinIdxType, bool no_sampling>
+void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, uint64_t* mask,
+                          uint64_t* leafs_mask, std::vector<int>* prev_level_nodes, uint32_t* nodes_count, const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
+  const uint32_t rows_offset = gmat.row_ptr.size() - 1;
+  const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
+  const uint32_t* offsets = gmat.index.Offset();
+
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const uint32_t i = no_sampling ? ii : row_indices_ptr[ii];
+    const uint32_t nid = nodes_ids[i];
+    if(((uint16_t)(1) << 15 & nid)) {
+      continue;
+    }
+    if((((uint64_t)(1) << (nid%64)) & *(leafs_mask + nid/64))) {
+      nodes_ids[i] = (uint16_t)(1) << 15;
+      nodes_ids[i] |= (uint16_t)((*prev_level_nodes)[nid]);
+      continue;
+    }
+    const int32_t sc = (*split_conditions)[nid + 1];
+    const bst_uint si = (*split_ind)[nid + 1];
+    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+
+    nodes_ids[i] = 2*nid + !(cmp_value <= sc);
+    if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask+nodes_ids[i]/64)) {
+      rows[++count] = i;
+      ++nodes_count[nodes_ids[i]];
+    }
+  }
+}
+
+
+template<typename BinIdxType, bool no_sampling>
+void JustPartitionLastLayerColumn(const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                          std::vector<int>* curr_level_nodes, uint64_t* leafs_mask, std::vector<int>* prev_level_nodes,
+                          const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
+  const uint32_t rows_offset = gmat.row_ptr.size() - 1;
+  const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
+  const uint32_t* offsets = gmat.index.Offset();
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const uint32_t i = no_sampling ? ii : row_indices_ptr[ii];
+    const uint32_t nid = nodes_ids[i];
+    if(((uint16_t)(1) << 15 & nid)) {
+      continue;
+    }
+    if((((uint64_t)(1) << (nid%64)) & *(leafs_mask + (nid/64)))) {
+      nodes_ids[i] = (uint16_t)(1) << 15;
+      nodes_ids[i] |= (uint16_t)((*prev_level_nodes)[nid]);
+      continue;
+    }
+    const int32_t sc = (*split_conditions)[nid + 1];
+    const bst_uint si = (*split_ind)[nid + 1];
+    nodes_ids[i] = (uint16_t)(1) << 15;
+    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    nodes_ids[i] |= (uint16_t)((*curr_level_nodes)[2*nid + !(cmp_value <= sc)]);
+  }
+}
+
+// sloow
+template<typename BinIdxType, bool no_sampling>
+void JustPartitionColumnar(const size_t row_indices_begin,
+                          const size_t row_indices_end,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
+                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                          uint64_t* mask, uint32_t* nodes_count,
+                          const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
+  const uint32_t* offsets = gmat.index.Offset();
+  const uint32_t rows_offset = gmat.row_ptr.size() - 1;
+  const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
+
+  for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+    const uint32_t i = no_sampling ? ii : row_indices_ptr[ii];
+    const uint32_t nid = nodes_ids[i];
+    const int32_t sc = (*split_conditions)[nid + 1];
+    const bst_uint si = (*split_ind)[nid + 1];
+    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    nodes_ids[i] = 2*nid + !(cmp_value <= sc);
+    if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask + nodes_ids[i]/64)) {
+      rows[++count] = i;
+      ++nodes_count[nodes_ids[i]];
+    }
+  }
+
+}
+
+
+template<bool do_prefetch, typename BinIdxType, int depth0, bool read_by_column, bool feature_blocking>
+void BuildHistKernel(const std::vector<GradientPair>& gpair,
+                          const uint32_t* rows,
+                          const uint32_t row_size,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          GHistRow<double> hist, const BinIdxType* numa, uint16_t* nodes_ids, const uint32_t n_nodes, uint64_t* offsets640, const ColumnMatrix *column_matrix, const size_t n_features_in_block) {
+if (read_by_column) {
+  const uint32_t n_bins = gmat.cut.Ptrs().back();
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const uint32_t* offsets = gmat.index.Offset();
+  double* hist_data = reinterpret_cast<double*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+
+  for (size_t cid = 0; cid < n_features; ++cid) {
+      const BinIdxType* gr_index_local = (*column_matrix).GetColumn<BinIdxType>(cid)->
+                                           GetFeatureBinIdxPtr().data();
+      double* hist_data_local = hist_data + two*(offsets[cid]);
+      for (size_t ii = 0; ii < row_size; ++ii) {
+        const size_t row_id = rows[ii];
+        const uint32_t nid = nodes_ids[row_id];
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin + nid*2*n_bins]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1  + nid*2*n_bins] += pgh[idx_gh+1];
+      }
+    }
+} else if (feature_blocking) {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const uint32_t* offsets = gmat.index.Offset();
+  const uint32_t n_bins = gmat.cut.Ptrs().back();
+  double* hist_data0 = reinterpret_cast<double*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+                           // 2 FP values: gradient and hessian.
+                           // So we need to multiply each row-index/bin-index by 2
+                           // to work with gradient pairs as a singe row FP array
+  const size_t nb = n_features / 13;
+  const size_t tail_size = n_features - nb*13;
+
+  for (size_t ib = 0; ib < nb; ++ib) {
+  for (size_t ri = 0; ri < row_size; ++ri) {
+      const size_t i = rows[ri];
+      const size_t icol_start = i * n_features;
+      const BinIdxType* gr_index_local = gradient_index + icol_start;
+      const size_t idx_gh = two * i;
+      const uint32_t nid = nodes_ids[i];
+
+      const uint64_t* offsets64 = offsets640 + nid*n_features;
+      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+
+      double* hist_data = hist_data0 + nid*n_bins*2;
+        VECTOR_UNR(0, ib);
+        VECTOR_UNR(1, ib);
+        VECTOR_UNR(2, ib);
+        VECTOR_UNR(3, ib);
+        VECTOR_UNR(4, ib);
+        VECTOR_UNR(5, ib);
+        VECTOR_UNR(6, ib);
+        VECTOR_UNR(7, ib);
+        VECTOR_UNR(8, ib);
+        VECTOR_UNR(9, ib);
+        VECTOR_UNR(10, ib);
+        VECTOR_UNR(11, ib);
+        VECTOR_UNR(12, ib);
+    }
+}
+
+  for (size_t ri = 0; ri < row_size; ++ri) {
+      const size_t i = rows[ri];
+      const size_t icol_start = i * n_features;
+      const BinIdxType* gr_index_local = gradient_index + icol_start;
+      const size_t idx_gh = two * i;
+      const uint32_t nid = nodes_ids[i];
+      const size_t icol_start_prefetch = rows[ri + Prefetch1::kPrefetchOffset] * n_features;
+
+      const uint64_t* offsets64 = offsets640 + nid*n_features;
+      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+
+      double* hist_data = hist_data0 + nid*n_bins*2;
+      for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
+          VECTOR_UNR(jb,0);
+      }
+    }
+
+  } else {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const uint32_t* offsets = gmat.index.Offset();
+  const uint32_t n_bins = gmat.cut.Ptrs().back();
+  double* hist_data0 = reinterpret_cast<double*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+                           // 2 FP values: gradient and hessian.
+                           // So we need to multiply each row-index/bin-index by 2
+                           // to work with gradient pairs as a singe row FP array
+  const size_t nb = n_features / 13;
+  const size_t tail_size = n_features - nb*13;
+
+  const size_t size_with_prefetch = row_size > Prefetch1::kPrefetchOffset ? row_size - Prefetch1::kPrefetchOffset : 0;
+    for (size_t ri = 0; ri < size_with_prefetch; ++ri) {
+      const size_t i = rows[ri];
+      const size_t icol_start = i * n_features;
+      const BinIdxType* gr_index_local = gradient_index + icol_start;
+      const size_t idx_gh = two * i;
+      const uint32_t nid = nodes_ids[i];
+      const size_t icol_start_prefetch = rows[ri + Prefetch1::kPrefetchOffset] * n_features;
+
+      PREFETCH_READ_T0(pgh + two * rows[ri + Prefetch1::kPrefetchOffset]);
+      PREFETCH_READ_T0(nodes_ids + rows[ri + Prefetch1::kPrefetchOffset]);
+      for (size_t j = icol_start_prefetch; j < icol_start_prefetch + n_features;
+          j += Prefetch1::GetPrefetchStep<BinIdxType>()) {
+        PREFETCH_READ_T0(gradient_index + j);
+      }
+
+      const uint64_t* offsets64 = offsets640 + nid*n_features;
+      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+      double* hist_data = hist_data0 + nid*n_bins*2;
+      for (size_t ib = 0; ib < nb; ++ib) {
+        VECTOR_UNR(0, ib);
+        VECTOR_UNR(1, ib);
+        VECTOR_UNR(2, ib);
+        VECTOR_UNR(3, ib);
+        VECTOR_UNR(4, ib);
+        VECTOR_UNR(5, ib);
+        VECTOR_UNR(6, ib);
+        VECTOR_UNR(7, ib);
+        VECTOR_UNR(8, ib);
+        VECTOR_UNR(9, ib);
+        VECTOR_UNR(10, ib);
+        VECTOR_UNR(11, ib);
+        VECTOR_UNR(12, ib);
+      }
+      for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
+          VECTOR_UNR(jb,0);
+      }
+    }
+
+  for (size_t ri = size_with_prefetch; ri < row_size; ++ri) {
+      const size_t i = rows[ri];
+      const size_t icol_start = i * n_features;
+      const BinIdxType* gr_index_local = gradient_index + icol_start;
+      const size_t idx_gh = two * i;
+      const uint32_t nid = nodes_ids[i];
+      const size_t icol_start_prefetch = rows[ri + Prefetch1::kPrefetchOffset] * n_features;
+
+      const uint64_t* offsets64 = offsets640 + nid*n_features;
+      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+
+      double* hist_data = hist_data0 + nid*n_bins*2;
+      for (size_t ib = 0; ib < nb; ++ib) {
+        VECTOR_UNR(0, ib);
+        VECTOR_UNR(1, ib);
+        VECTOR_UNR(2, ib);
+        VECTOR_UNR(3, ib);
+        VECTOR_UNR(4, ib);
+        VECTOR_UNR(5, ib);
+        VECTOR_UNR(6, ib);
+        VECTOR_UNR(7, ib);
+        VECTOR_UNR(8, ib);
+        VECTOR_UNR(9, ib);
+        VECTOR_UNR(10, ib);
+        VECTOR_UNR(11, ib);
+        VECTOR_UNR(12, ib);
+      }
+      for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
+          VECTOR_UNR(jb,0);
+      }
+    }
+  }
+}
+
+
+
+template<bool do_prefetch, typename BinIdxType, int depth0, bool read_by_column, bool feature_blocking>
+void BuildHistKernel(const std::vector<GradientPair>& gpair,
+                          const uint32_t* rows,
+                          const uint32_t row_size,
+                          const GHistIndexMatrix& gmat,
+                          const size_t n_features,
+                          GHistRow<float> hist, const BinIdxType* numa, uint16_t* nodes_ids, const uint32_t n_nodes, uint64_t* offsets640, const ColumnMatrix *column_matrix, const size_t n_features_in_block) {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const uint32_t* offsets = gmat.index.Offset();
+  const uint32_t n_bins = gmat.cut.Ptrs().back();
+  float* hist_data0 = reinterpret_cast<float*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+                           // 2 FP values: gradient and hessian.
+                           // So we need to multiply each row-index/bin-index by 2
+                           // to work with gradient pairs as a singe row FP array
+  const size_t nb = n_features / 13;
+  const size_t tail_size = n_features - nb*13;
+
+  const size_t size_with_prefetch = row_size > Prefetch1::kPrefetchOffset ? row_size - Prefetch1::kPrefetchOffset : 0;
+
+  // TODO need template do_prefetch
+  for (size_t ri = 0; ri < size_with_prefetch; ++ri) {
+    const size_t i = rows[ri];
+    const size_t icol_start = i * n_features;
+    const BinIdxType* gr_index_local = gradient_index + icol_start;
+    const size_t idx_gh = two * i;
+    const uint32_t nid = nodes_ids[i];
+    const size_t icol_start_prefetch = rows[ri + Prefetch1::kPrefetchOffset] * n_features;
+
+    PREFETCH_READ_T0(pgh + two * rows[ri + Prefetch1::kPrefetchOffset]);
+    PREFETCH_READ_T0(nodes_ids + rows[ri + Prefetch1::kPrefetchOffset]);
+    for (size_t j = icol_start_prefetch; j < icol_start_prefetch + n_features;
+        j += Prefetch1::GetPrefetchStep<BinIdxType>()) {
+      PREFETCH_READ_T0(gradient_index + j);
+    }
+
+    float* hist_data = hist_data0 + nid*n_bins*2;
+    for (size_t ib = 0; ib < nb; ++ib) {
+      UNR(0, ib);
+      UNR(1, ib);
+      UNR(2, ib);
+      UNR(3, ib);
+      UNR(4, ib);
+      UNR(5, ib);
+      UNR(6, ib);
+      UNR(7, ib);
+      UNR(8, ib);
+      UNR(9, ib);
+      UNR(10, ib);
+      UNR(11, ib);
+      UNR(12, ib);
+    }
+    for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
+        UNR(jb,0);
+    }
+  }
+
+  for (size_t ri = size_with_prefetch; ri < row_size; ++ri) {
+      const size_t i = rows[ri];
+      const size_t icol_start = i * n_features;
+      const BinIdxType* gr_index_local = gradient_index + icol_start;
+      const size_t idx_gh = two * i;
+      const uint32_t nid = nodes_ids[i];
+      const size_t icol_start_prefetch = rows[ri + Prefetch1::kPrefetchOffset] * n_features;
+
+      float* hist_data = hist_data0 + nid*n_bins*2;
+      for (size_t ib = 0; ib < nb; ++ib) {
+        UNR(0, ib);
+        UNR(1, ib);
+        UNR(2, ib);
+        UNR(3, ib);
+        UNR(4, ib);
+        UNR(5, ib);
+        UNR(6, ib);
+        UNR(7, ib);
+        UNR(8, ib);
+        UNR(9, ib);
+        UNR(10, ib);
+        UNR(11, ib);
+        UNR(12, ib);
+      }
+      for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
+          UNR(jb,0);
+      }
+    }
+}
+
+
+template<typename GradientSumT>
+template<typename BinIdxType>
+void QuantileHistMaker::Builder<GradientSumT>::DensePartition(
+    const GHistIndexMatrix &gmat,
+    const GHistIndexBlockMatrix &gmatb,
+    RegTree *p_tree,
+    const std::vector<GradientPair> &gpair_h, int depth,
+    std::vector<std::vector<GradientSumT>>* histograms, uint16_t* nodes_ids, std::vector<int32_t>* split_conditions,
+    std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr) {
+  const size_t n_features = gmat.cut.Ptrs().size() - 1;
+  const size_t n_bins = gmat.cut.Ptrs().back();
+  std::vector<size_t>& row_indices = *row_set_collection_.Data();
+  const size_t* row_indices_ptr = row_indices.data();
+  common::BlockedSpace2d& space = *space_ptr;
+  int nthreads = this->nthread_;
+  const size_t num_blocks_in_space = space.Size();
+  nthreads = std::min(nthreads, omp_get_max_threads());
+  nthreads = std::max(nthreads, 1);
+  std::string depth_str = std::to_string(depth);
+builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
+            vec_rows_.resize(nthreads);
+            static bool is_compleate_tree = true;
+            if (depth == 0) {
+              is_compleate_tree = true;
+            }
+
+            is_compleate_tree = is_compleate_tree * (1 << depth == qexpand_depth_wise_.size());
+
+            threads_addr_.resize(nthreads);
+
+            std::vector<int> curr_level_nodes(1 << depth, 0);
+            std::vector<std::vector<uint32_t>> threads_nodes_count(nthreads);
+
+            for(size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
+              curr_level_nodes[compleate_trees_depth_wise_[i]] = qexpand_depth_wise_[i].nid;
+            }
+            // std::cout << "curr_" << depth <<" level_nodes: ";
+            // for(size_t i = 0; i < curr_level_nodes.size(); ++i) {
+            //   std::cout << curr_level_nodes[i] << "  ";
+            // }
+            // std::cout << std::endl;
+
+            if(depth > 0) {
+            if(depth < max_depth) {
+
+              if (is_compleate_tree) {
+                #pragma omp parallel num_threads(nthreads)
+                  {
+                      size_t tid = omp_get_thread_num();
+                      threads_nodes_count[tid].resize(1 << depth, 0);
+                      const BinIdxType* numa = tid < nthreads/2 ? gmat.index.data<BinIdxType>() :  gmat.index.data2<BinIdxType>();
+                      size_t chunck_size =
+                          num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+
+                      size_t begin = chunck_size * tid;
+                      size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+                      uint64_t local_time_alloc = 0;
+                    const size_t th_size = end > begin ? end - begin : 0;
+                      vec_rows_[tid].resize(4096*th_size + 1, 0);
+                      uint32_t count = 0;
+                    if(row_indices.size() == 0) {
+                      for (auto i = begin; i < end; i++) {
+                        common::Range1d r = space.GetRange(i);
+                        JustPartitionColumnar<BinIdxType, true>(r.begin(), r.end(), gmat, n_features,
+                                      nullptr, vec_rows_[tid].data(), count, numa,
+                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);//, column_matrix);
+                      }
+                    } else {
+                      for (auto i = begin; i < end; i++) {
+                        common::Range1d r = space.GetRange(i);
+                        JustPartitionColumnar<BinIdxType, false>(r.begin(), r.end(), gmat, n_features,
+                                      nullptr, vec_rows_[tid].data(), count, numa,
+                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);//, column_matrix);
+                      }
+                    }
+                      vec_rows_[tid][0] = count;
+                  }
+              } else {
+                #pragma omp parallel num_threads(nthreads)
+                  {
+                      size_t tid = omp_get_thread_num();
+                      threads_nodes_count[tid].resize(1 << depth, 0);
+                      const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+                      size_t chunck_size =
+                          num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+
+                      size_t begin = chunck_size * tid;
+                      size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+                      uint64_t local_time_alloc = 0;
+                    const size_t th_size = end > begin ? end - begin : 0;
+                      vec_rows_[tid].resize(4096*th_size + 1, 0);
+                      uint32_t count = 0;
+                      if(row_indices.size() == 0) {
+                        for (auto i = begin; i < end; i++) {
+                          common::Range1d r = space.GetRange(i);
+                          JustPartitionWithLeafsMaskColumn<BinIdxType, true>(r.begin(), r.end(), gmat, n_features,
+                                        nullptr, vec_rows_[tid].data(), count, numa,
+                                        nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);
+                        }
+                      } else {
+                        for (auto i = begin; i < end; i++) {
+                          common::Range1d r = space.GetRange(i);
+                          JustPartitionWithLeafsMaskColumn<BinIdxType, false>(r.begin(), r.end(), gmat, n_features,
+                                        nullptr, vec_rows_[tid].data(), count, numa,
+                                        nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);
+                        }
+                      }
+                      //std::cout << "count: " << count << std::endl;
+                      vec_rows_[tid][0] = count;
+                  }
+              }
+                uint32_t summ_size1 = 0;
+
+                for(uint32_t i = 0; i < nthreads; ++i) {
+                  summ_size1 += vec_rows_[i][0];
+                }
+static std::vector<std::vector<uint32_t>> threads_rows_nodes_wise(nthreads);
+const bool hist_fit_to_l2 = 1024*1024*0.8 > sizeof(GradientSumT)*2*gmat.cut.Ptrs().back();
+
+if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins || (depth > 2 && !hist_fit_to_l2)) {
+  threads_id_for_nodes_.resize(1 << max_depth);
+  //std::cout << "\n no reason to read sequentialy!: " << depth << ":" <<  n_features*summ_size1 / nthreads << std::endl;
+  std::vector<std::vector<int>> nodes_count(nthreads);
+  #pragma omp parallel num_threads(nthreads)
+  {
+    size_t tid = omp_get_thread_num();
+    threads_rows_nodes_wise[tid].resize(vec_rows_[tid][0],0);
+
+    nodes_count[tid].resize((1 << depth) + 1, 0);
+    for(size_t i = 1; i < (1<<depth); ++i){
+      nodes_count[tid][i + 1] += nodes_count[tid][i] + threads_nodes_count[tid][i-1];
+    }
+    for(size_t i = 0; i < vec_rows_[tid][0]; ++i) {
+      const uint32_t row_id = vec_rows_[tid][i + 1];
+      const uint32_t nod_id = nodes_ids[row_id];
+      // CHECK_LT(nod_id, 1<<depth);
+      // CHECK_LT(nodes_count[nod_id], vec_rows_[tid][0]);
+      threads_rows_nodes_wise[tid][nodes_count[tid][nod_id + 1]++] = row_id;
+    }
+    std::copy(threads_rows_nodes_wise[tid].data(), threads_rows_nodes_wise[tid].data() + vec_rows_[tid][0], vec_rows_[tid].data()+1);
+  }
+  // std::cout << depth << " - threads_nodes_count: " << std::endl;
+//   for (size_t i = 0; i < nthreads; ++i) {
+//     std::cout << "i-" << i << ": ";
+//     for (size_t j = 0; j < (1 << depth); ++j) {
+//       std::cout << threads_nodes_count[i][j] << "  ";
+//     }
+//     std::cout << "\n";
+//   }
+//   std::cout << std::endl;
+
+//   std::cout << "nodes_count: " << std::endl;
+//   for (size_t i = 0; i < nthreads; ++i) {
+//     std::cout << "i-" << i << ": ";
+//     for (size_t j = 0; j < (1 << depth) + 1; ++j) {
+//       std::cout << nodes_count[i][j] << "  ";
+//     }
+//     std::cout << "\n";
+//   }
+//   std::cout << std::endl;
+// std::cout << nodes_count.size() << "  " << nodes_count[0].size() << std::endl;
+
+                uint32_t block_size = summ_size1/nthreads + !!(summ_size1%nthreads);
+                uint32_t node_id = 0;
+                uint32_t curr_thread_size = block_size;
+//                std::cout << "summ_size1: " << summ_size1 << "\n";
+//                std::cout << "curr_thread_size: " << curr_thread_size << "\n";
+                uint32_t curr_node_disp = 0;
+                uint32_t curr_thread_id = 0;
+                for(uint32_t i = 0; i < nthreads; ++i) {
+                  //std::cout << i << std::endl;
+                  while (curr_thread_size != 0) {
+                    const uint32_t curr_thread_node_size = threads_nodes_count[curr_thread_id%nthreads][node_id];
+//                    std::cout << "curr_thread_node_size: " << curr_thread_node_size << std::endl;
+//                    std::cout << "curr_thread_size: " << curr_thread_size << std::endl;
+                    if (curr_thread_node_size == 0) {
+                      ++curr_thread_id;
+                      node_id = curr_thread_id / nthreads;
+                    } else if (curr_thread_node_size > 0 && curr_thread_node_size <= curr_thread_size) {
+//                      std::cout << "2.1-curr_thread_size: " << curr_thread_size << std::endl;
+                      const uint32_t begin = 1 + nodes_count[curr_thread_id%nthreads][node_id];
+//                      std::cout << "begin: " << begin << std::endl;
+                      threads_addr_[i].push_back({vec_rows_[curr_thread_id%nthreads].data(), begin,
+                        begin + curr_thread_node_size});
+                      //  std::cout << "node_id: " << node_id << " thr-i: " << i << " threads_id_for_nodes_.size()" << threads_id_for_nodes_.size() << " threads_id_for_nodes_[node_id].size():" << threads_id_for_nodes_[node_id].size() <<  std::endl;
+                      if (threads_id_for_nodes_[node_id].size() != 0) {
+                        if (threads_id_for_nodes_[node_id].back() != i) {
+                          threads_id_for_nodes_[node_id].push_back(i);
+                        }
+                      } else {
+                        threads_id_for_nodes_[node_id].push_back(i);
+                      }
+                      threads_nodes_count[curr_thread_id%nthreads][node_id] = 0;
+                      curr_thread_size -= curr_thread_node_size;
+//                      std::cout << "2.2-curr_thread_size: " << curr_thread_size << std::endl;
+                      ++curr_thread_id;
+                      node_id = curr_thread_id / nthreads;
+                    } else {
+                      const uint32_t begin = 1 + nodes_count[curr_thread_id%nthreads][node_id];
+                      threads_addr_[i].push_back({vec_rows_[curr_thread_id%nthreads].data(), begin,
+                        begin + curr_thread_size});
+                      if (threads_id_for_nodes_[node_id].size() != 0) {
+                        if (threads_id_for_nodes_[node_id].back() != i) {
+                          threads_id_for_nodes_[node_id].push_back(i);
+                        }
+                      } else {
+                        threads_id_for_nodes_[node_id].push_back(i);
+                      }
+                      threads_nodes_count[curr_thread_id%nthreads][node_id] -= curr_thread_size;
+                      nodes_count[curr_thread_id%nthreads][node_id] += curr_thread_size;
+                      curr_thread_size = 0;
+                    }
+                  }
+                  curr_thread_size = std::min(block_size, summ_size1 > block_size*(i+1) ? summ_size1 - block_size*(i+1) : 0);
+                }
+//std::cout << "\nNEW WORK PREPARATION was DONE!\n";
+// std::cout << "threads_addr_.sizes:";
+// for(size_t i = 0; i < nthreads; ++i) {
+//   std::cout << threads_addr_[i].size() << "  ";
+// }
+// std::cout << "\n";
+}  else {
+                //std::cout << "depth: " << depth << " summ_size1: " <<  summ_size1 << std::endl;
+                uint32_t block_size = summ_size1/nthreads + !!(summ_size1%nthreads);
+                uint32_t curr_vec_rows_id = 0;
+                uint32_t curr_vec_rows_size = vec_rows_[curr_vec_rows_id][0];
+                uint32_t curr_thread_size = block_size;
+                for(uint32_t i = 0; i < nthreads; ++i) {
+                  while (curr_thread_size != 0) {
+                    if(curr_vec_rows_size > curr_thread_size) {
+                      threads_addr_[i].push_back({vec_rows_[curr_vec_rows_id].data(),
+                                                1 + vec_rows_[curr_vec_rows_id][0] - curr_vec_rows_size,
+                                                1 + vec_rows_[curr_vec_rows_id][0] - curr_vec_rows_size + curr_thread_size});
+                      curr_vec_rows_size -= curr_thread_size;
+                      curr_thread_size = 0;
+                    } else if (curr_vec_rows_size == curr_thread_size) {
+                      threads_addr_[i].push_back({vec_rows_[curr_vec_rows_id].data(),
+                                                1 + vec_rows_[curr_vec_rows_id][0] - curr_vec_rows_size,
+                                                1 + vec_rows_[curr_vec_rows_id][0] - curr_vec_rows_size + curr_thread_size});
+                      curr_vec_rows_id += (curr_vec_rows_id < (nthreads - 1));
+                      curr_vec_rows_size = vec_rows_[curr_vec_rows_id][0];
+                      curr_thread_size = 0;
+                    } else {
+                      threads_addr_[i].push_back({vec_rows_[curr_vec_rows_id].data(),
+                                                1 + vec_rows_[curr_vec_rows_id][0] - curr_vec_rows_size,
+                                                1 + vec_rows_[curr_vec_rows_id][0]});
+                      curr_thread_size -= curr_vec_rows_size;
+                      curr_vec_rows_id += (curr_vec_rows_id < (nthreads - 1));
+                      curr_vec_rows_size = vec_rows_[curr_vec_rows_id][0];
+                    }
+                  }
+                  curr_thread_size = std::min(block_size, summ_size1 > block_size*(i+1) ? summ_size1 - block_size*(i+1) : 0);
+                }
+              }
+            } else {
+                #pragma omp parallel num_threads(nthreads)
+                  {
+                      size_t tid = omp_get_thread_num();
+                      const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+                      size_t chunck_size =
+                          num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+
+                      size_t begin = chunck_size * tid;
+                      size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+                      const size_t th_size = end > begin ? end - begin : 0;
+                      vec_rows_[tid].resize(4096*th_size + 1, 0);
+                      uint64_t local_time_alloc = 0;
+                      uint32_t count = 0;
+                      if(row_indices.size() == 0) {
+                        for (auto i = begin; i < end; i++) {
+                          common::Range1d r = space.GetRange(i);
+                          JustPartitionLastLayerColumn<BinIdxType, true>(r.begin(), r.end(), gmat, n_features,
+                                        nullptr, vec_rows_[tid].data(), count, numa,
+                                        nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix, row_indices_ptr);
+                        }
+                      } else {
+                        for (auto i = begin; i < end; i++) {
+                          common::Range1d r = space.GetRange(i);
+                          JustPartitionLastLayerColumn<BinIdxType, false>(r.begin(), r.end(), gmat, n_features,
+                                        nullptr, vec_rows_[tid].data(), count, numa,
+                                        nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix, row_indices_ptr);
+                        }
+                      }
+                      vec_rows_[tid][0] = count;
+                  }
+            }
+
+
+            }
+            prev_level_nodes_ = curr_level_nodes;
+
+builder_monitor_.Stop("JustPartition!!!!!!" + depth_str);
+}
+
+
+template<typename GradientSumT>
+void QuantileHistMaker::Builder<GradientSumT>::DenseSync(
+    const GHistIndexMatrix &gmat,
+    const GHistIndexBlockMatrix &gmatb,
+    RegTree *p_tree,
+    const std::vector<GradientPair> &gpair_h, int depth,
+    std::vector<std::vector<GradientSumT>>* histograms, uint16_t* nodes_ids, std::vector<int32_t>* split_conditions,
+    std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr) {
+  const size_t n_bins = gmat.cut.Ptrs().back();
+  const size_t n_features = gmat.cut.Ptrs().size() - 1;
+  common::BlockedSpace2d& space = *space_ptr;
+  int nthreads = this->nthread_;
+  const size_t num_blocks_in_space = space.Size();
+  nthreads = std::min(nthreads, omp_get_max_threads());
+  nthreads = std::max(nthreads, 1);
+
+  builder_monitor_.Start("BuildHistSync!!");
+
+if(depth == 0) {
+  builder_monitor_.Start("BuildHistSync: depth0");
+  //for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
+   const int32_t nid = 0;//qexpand_depth_wise_[i].nid;
+   GradientSumT* dest_hist = reinterpret_cast<GradientSumT*>(hist_[nid].data());
+   const size_t block_size = 2*n_bins / nthreads + !!(2*n_bins % nthreads);
+#pragma omp parallel num_threads(nthreads)
+  {
+   size_t tid = omp_get_thread_num();
+   const size_t begin = tid*block_size;
+   const size_t end = (begin + block_size) < 2*n_bins ? (begin + block_size) : 2*n_bins;
+
+   for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+     dest_hist[bin_id] = (*histograms)[0][bin_id];
+     (*histograms)[0][bin_id] = 0;
+   }
+   for (size_t tid = 1; tid < nthreads; ++tid) {
+     for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+       dest_hist[bin_id] += (*histograms)[tid][bin_id];
+       (*histograms)[tid][bin_id] = 0;
+     }
+   }
+  }
+  //}
+  builder_monitor_.Stop("BuildHistSync: depth0");
+
+} else if (depth < max_depth){
+  builder_monitor_.Start("BuildHistSync: preporation");
+
+  std::vector<size_t> smallest;
+  std::vector<size_t> largest;
+  for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
+   const int32_t nid_c = compleate_trees_depth_wise_[i];
+   if(((uint64_t)(1) << (nid_c%64)) & *(mask + nid_c/64)) {
+     smallest.push_back(i);
+   } else {
+     largest.push_back(i);
+   }
+  }
+    const uint32_t summ_size_bin = n_bins*smallest.size();
+    uint32_t block_size = summ_size_bin/nthreads + !!(summ_size_bin%nthreads);
+    std::vector<std::vector<NodesBeginEnd>> threads_work(nthreads);
+    const uint32_t node_full_size = n_bins;
+    uint32_t curr_node_id = 0;
+    uint32_t curr_node_size = node_full_size;
+    uint32_t curr_thread_size = block_size;
+    for(uint32_t i = 0; i < nthreads; ++i) {
+      while (curr_thread_size != 0) {
+        if(curr_node_size > curr_thread_size) {
+          CHECK_LT(curr_node_id, smallest.size());
+          threads_work[i].push_back({curr_node_id, node_full_size - curr_node_size,
+                                    node_full_size - curr_node_size + curr_thread_size});
+          curr_node_size -= curr_thread_size;
+          curr_thread_size = 0;
+        } else if (curr_node_size == curr_thread_size) {
+          CHECK_LT(curr_node_id, smallest.size());
+          threads_work[i].push_back({curr_node_id,
+                                    node_full_size - curr_node_size,
+                                    node_full_size - curr_node_size + curr_thread_size});
+          curr_node_id++;//= (curr_node_id < (nthreads - 1));
+          curr_node_size = node_full_size;
+          curr_thread_size = 0;
+        } else {
+          CHECK_LT(curr_node_id, smallest.size());
+          threads_work[i].push_back({curr_node_id,
+                                    node_full_size - curr_node_size,
+                                    node_full_size});
+          curr_thread_size -= curr_node_size;
+          curr_node_id++;//(curr_node_id < (nthreads - 1));
+          curr_node_size = node_full_size;
+        }
+      }
+      curr_thread_size = std::min(block_size, summ_size_bin > block_size*(i+1) ? summ_size_bin - block_size*(i+1) : 0);
+    }
+  builder_monitor_.Stop("BuildHistSync: preporation");
+
+std::string depth_str = std::to_string(depth);
+  builder_monitor_.Start("BuildHistSync: depth " + depth_str);
+
+if (threads_id_for_nodes_.size() == 0) {
+#pragma omp parallel num_threads(nthreads)
+  {
+    const size_t block_size1 = 2*n_bins / nthreads + !!(2*n_bins % nthreads);
+    size_t tid = omp_get_thread_num();
+    const size_t begin = tid*block_size1;
+    const size_t end = (begin + block_size1) < 2*n_bins ? (begin + block_size1) : 2*n_bins;
+    for (size_t i = 0; i < smallest.size(); ++i) {
+      const int32_t nid = qexpand_depth_wise_[smallest[i]].nid;
+      const int32_t nid_c = compleate_trees_depth_wise_[smallest[i]];
+
+      GradientSumT* dest_hist = reinterpret_cast<GradientSumT*>(hist_[nid].data());
+
+      for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+        dest_hist[bin_id] = (*histograms)[0][nid_c*2*n_bins + bin_id];
+        (*histograms)[0][nid_c*2*n_bins + bin_id] = 0;
+      }
+      for (size_t tid = 1; tid < nthreads; ++tid) {
+        for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+          dest_hist[bin_id] += (*histograms)[tid][nid_c*2*n_bins + bin_id];
+          (*histograms)[tid][nid_c*2*n_bins + bin_id] = 0;
+        }
+      }
+    }
+  }
+} else {
+#pragma omp parallel num_threads(nthreads)
+  {
+    const size_t block_size1 = 2*n_bins / nthreads + !!(2*n_bins % nthreads);
+    size_t tid = omp_get_thread_num();
+    const size_t begin = tid*block_size1;
+    const size_t end = (begin + block_size1) < 2*n_bins ? (begin + block_size1) : 2*n_bins;
+    for (size_t i = 0; i < smallest.size(); ++i) {
+      const int32_t nid = qexpand_depth_wise_[smallest[i]].nid;
+      const int32_t nid_c = compleate_trees_depth_wise_[smallest[i]];
+
+      GradientSumT* dest_hist = reinterpret_cast<GradientSumT*>(hist_[nid].data());
+      if (threads_id_for_nodes_[nid_c].size() != 0) {
+        const size_t first_thread_id = threads_id_for_nodes_[nid_c][0];
+        for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+          dest_hist[bin_id] = (*histograms)[first_thread_id][nid_c*2*n_bins + bin_id];
+          (*histograms)[first_thread_id][nid_c*2*n_bins + bin_id] = 0;
+        }
+        for (size_t tid = 1; tid < threads_id_for_nodes_[nid_c].size(); ++tid) {
+          const size_t thread_id = threads_id_for_nodes_[nid_c][tid];
+          for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+            dest_hist[bin_id] += (*histograms)[thread_id][nid_c*2*n_bins + bin_id];
+            (*histograms)[thread_id][nid_c*2*n_bins + bin_id] = 0;
+          }
+        }
+      }
+    }
+  }
+}
+threads_id_for_nodes_.clear();
+
+// #pragma omp parallel num_threads(nthreads)
+//   {
+//       size_t tid = omp_get_thread_num();
+//       for(size_t i = 0; i < threads_work[tid].size(); ++i) {
+//         const size_t begin = threads_work[tid][i].b * 2;
+//         const size_t end = threads_work[tid][i].e * 2;
+
+//         const int32_t nid_c = compleate_trees_depth_wise_[smallest[threads_work[tid][i].node_id]];
+//         const int32_t nid = qexpand_depth_wise_[smallest[threads_work[tid][i].node_id]].nid;
+//         GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[nid].data());
+//         const size_t block_size = 1024;
+//         const size_t size = end > begin ? end - begin : 0;
+//         const size_t n_blocks = size / block_size;
+//         const size_t tail_size = size - n_blocks*block_size;
+//         for (size_t block_id = 0; block_id < n_blocks; ++block_id) {
+//           for (size_t bin_id = begin + block_id*block_size; bin_id < begin + (block_id+1)*block_size; ++bin_id) {
+//             dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
+//             (*histograms)[0][2*nid_c*n_bins + bin_id] = 0;
+//           }
+//           for (size_t tid = 1; tid < nthreads; ++tid) {
+//             for (size_t bin_id = begin + block_id*block_size; bin_id < begin + (block_id+1)*block_size; ++bin_id) {
+//               dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
+//               (*histograms)[tid][2*nid_c*n_bins + bin_id] = 0;
+//             }
+//           }
+//         }
+//         if (tail_size != 0) {
+//           for (size_t bin_id = begin + n_blocks*block_size; bin_id < end; ++bin_id) {
+//             dest_hist[bin_id] = (*histograms)[0][2*nid_c*n_bins + bin_id];
+//             (*histograms)[0][2*nid_c*n_bins + bin_id] = 0;
+//           }
+//           for (size_t tid = 1; tid < nthreads; ++tid) {
+//             for (size_t bin_id = begin + n_blocks*block_size; bin_id < end; ++bin_id) {
+//               dest_hist[bin_id] += (*histograms)[tid][2*nid_c*n_bins + bin_id];
+//               (*histograms)[tid][2*nid_c*n_bins + bin_id] = 0;
+//             }
+//           }
+//         }
+//       }
+//   }
+  builder_monitor_.Stop("BuildHistSync: depth " + depth_str);
+  builder_monitor_.Start("Subtrick: depth " + depth_str);
+#pragma omp parallel num_threads(nthreads)
+  {
+      size_t tid = omp_get_thread_num();
+      for(size_t i = 0; i < threads_work[tid].size(); ++i) {
+        const size_t begin = threads_work[tid][i].b * 2;
+        const size_t end = threads_work[tid][i].e * 2;
+
+        const int32_t small_nid = qexpand_depth_wise_[smallest[threads_work[tid][i].node_id]].nid;
+        const int32_t largest_nid = qexpand_depth_wise_[smallest[threads_work[tid][i].node_id]].sibling_nid;
+        const size_t parent_id = (*p_tree)[small_nid].Parent();
+
+        GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[largest_nid].data());
+        GradientSumT* parent_hist = reinterpret_cast< GradientSumT*>(hist_[parent_id].data());
+        GradientSumT* small_hist = reinterpret_cast< GradientSumT*>(hist_[small_nid].data());
+        for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+          dest_hist[bin_id] = parent_hist[bin_id] - small_hist[bin_id];
+        }
+      }
+  }
+  builder_monitor_.Stop("Subtrick: depth " + depth_str);
+
+
+CHECK_EQ(smallest.size(), largest.size());
+}
+builder_monitor_.Stop("BuildHistSync!!");
+
+}
 
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
@@ -358,6 +1566,193 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistograms(
 }
 
 template<typename GradientSumT>
+template<typename BinIdxType>
+void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistogramsDense(
+    const GHistIndexMatrix &gmat,
+    const GHistIndexBlockMatrix &gmatb,
+    RegTree *p_tree,
+    const std::vector<GradientPair> &gpair_h, int depth,
+    std::vector<std::vector<GradientSumT>>* histograms, uint16_t* nodes_ids, std::vector<int32_t>* split_conditions,
+    std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr) {
+
+builder_monitor_.Start("BuildLocalHistograms FULL");
+  std::string timer_name = "BuildLocalHistograms:";
+  timer_name += std::to_string(depth);
+  const size_t n_bins = gmat.cut.Ptrs().back();
+  const size_t n_features = gmat.cut.Ptrs().size() - 1;
+  common::BlockedSpace2d& space = *space_ptr;
+  int nthreads = this->nthread_;
+  const size_t num_blocks_in_space = space.Size();
+  nthreads = std::min(nthreads, omp_get_max_threads());
+  nthreads = std::max(nthreads, 1);
+
+
+  // std::vector<size_t> smallest;
+  // std::vector<size_t> largest;
+  // for (size_t i = 0; i < qexpand_depth_wise_.size(); ++i) {
+  //  const int32_t nid_c = compleate_trees_depth_wise_[i];
+  //  if(((uint64_t)(1) << (nid_c%64)) & *(mask + nid_c/64)) {
+  //    smallest.push_back(i);
+  //  } else {
+  //    largest.push_back(i);
+  //  }
+  // }
+  const bool hist_fit_to_l2 = 1024*1024*0.8 > sizeof(GradientSumT)*2*gmat.cut.Ptrs().back();
+
+if(depth < max_depth) {
+  builder_monitor_.Start(timer_name);
+
+  if(depth == 0) {
+    if (!hist_fit_to_l2) {
+      #pragma omp parallel num_threads(nthreads)
+        {
+            size_t tid = omp_get_thread_num();
+            GradientSumT* hist = (*histograms)[tid].data();// + nid_c*2*n_bins;
+            // for (size_t bin_id = 0; bin_id < 2*n_bins; ++bin_id) {
+            //   hist[bin_id] = 0;
+            // }
+            const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+            size_t chunck_size =
+                num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+
+            size_t begin = chunck_size * tid;
+            size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+            uint64_t local_time_alloc = 0;
+            if ((*row_set_collection_.Data()).size() == 0) {
+              for (auto i = begin; i < end; i++) {
+                common::Range1d r = space.GetRange(i);
+                GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+                BuildHistKernel<BinIdxType, true, true>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), nullptr, column_matrix);
+              }
+            } else {
+              for (auto i = begin; i < end; i++) {
+                common::Range1d r = space.GetRange(i);
+                GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+                BuildHistKernel<BinIdxType, false, true>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), (*row_set_collection_.Data()).data(), column_matrix);
+              }
+            }
+        }
+    } else {
+      #pragma omp parallel num_threads(nthreads)
+        {
+            size_t tid = omp_get_thread_num();
+            GradientSumT* hist = (*histograms)[tid].data();// + nid_c*2*n_bins;
+            // for (size_t bin_id = 0; bin_id < 2*n_bins; ++bin_id) {
+            //   hist[bin_id] = 0;
+            // }
+            const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+            size_t chunck_size =
+                num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+
+            size_t begin = chunck_size * tid;
+            size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+            uint64_t local_time_alloc = 0;
+            if ((*row_set_collection_.Data()).size() == 0) {
+              for (auto i = begin; i < end; i++) {
+                common::Range1d r = space.GetRange(i);
+                GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+                BuildHistKernel<BinIdxType, true, false>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), nullptr, column_matrix);
+              }
+            } else {
+              for (auto i = begin; i < end; i++) {
+                common::Range1d r = space.GetRange(i);
+                GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+                BuildHistKernel<BinIdxType, false, false>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), (*row_set_collection_.Data()).data(), column_matrix);
+              }
+            }
+        }
+    }
+  } else {
+if(!hist_fit_to_l2) {
+  if(depth <= 2) {
+    #pragma omp parallel num_threads(nthreads)
+    {
+          size_t tid = omp_get_thread_num();
+          const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+          std::vector<AddrBeginEnd>& local_thread_addr = threads_addr_[tid];
+          GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+              BuildHistKernel<false, BinIdxType, 1, true, false>(gpair_h, rows, size_r, gmat, n_features,
+                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+            }
+    }
+  } else {
+    #pragma omp parallel num_threads(nthreads)
+    {
+          size_t tid = omp_get_thread_num();
+          const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+          std::vector<AddrBeginEnd>& local_thread_addr = threads_addr_[tid];
+          GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+              BuildHistKernel<false, BinIdxType, 1, false, true>(gpair_h, rows, size_r, gmat, n_features,
+                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+            }
+    }
+  }
+} else {
+    #pragma omp parallel num_threads(nthreads)
+    {
+          size_t tid = omp_get_thread_num();
+          const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+          std::vector<AddrBeginEnd>& local_thread_addr = threads_addr_[tid];
+          GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+          for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+              BuildHistKernel<false, BinIdxType, 1, false, false>(gpair_h, rows, size_r, gmat, n_features,
+                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+          }
+    }
+
+}
+  }
+
+  builder_monitor_.Stop(timer_name);
+
+}
+
+builder_monitor_.Stop("BuildLocalHistograms FULL");
+threads_addr_.clear();
+CHECK_EQ(threads_addr_.size(), 0);
+}
+
+template<typename GradientSumT>
+void QuantileHistMaker::Builder<GradientSumT>::BuildNodeStats(
+    const GHistIndexMatrix &gmat,
+    DMatrix *p_fmat,
+    RegTree *p_tree,
+    const std::vector<GradientPair> &gpair_h, uint64_t* mask, int n_call) {
+  builder_monitor_.Start("BuildNodeStats");
+  int i = 0;
+  for (auto const& entry : qexpand_depth_wise_) {
+    int nid = entry.nid;
+    this->InitNewNode(nid, gmat, gpair_h, *p_fmat, *p_tree, compleate_trees_depth_wise_[i], mask);
+    ++i;
+    // add constraints
+    if (!(*p_tree)[nid].IsLeftChild() && !(*p_tree)[nid].IsRoot()) {
+      // it's a right child
+      auto parent_id = (*p_tree)[nid].Parent();
+      auto left_sibling_id = (*p_tree)[parent_id].LeftChild();
+      auto parent_split_feature_id = snode_[parent_id].best.SplitIndex();
+      // if (n_call == 175 || n_call == 174 || n_call == 173) {
+      //   std::cout << "parent_id: " << parent_id << " rnid: " << nid << " parent_split_feature_id: " <<
+      //   parent_split_feature_id << " left.weight: " << snode_[left_sibling_id].weight << std::endl;
+      // }
+
+      tree_evaluator_.AddSplit(
+          parent_id, left_sibling_id, nid, parent_split_feature_id,
+          snode_[left_sibling_id].weight, snode_[nid].weight);
+      interaction_constraints_.Split(parent_id, parent_split_feature_id,
+                                     left_sibling_id, nid);
+    }
+  }
+  builder_monitor_.Stop("BuildNodeStats");
+}
+template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::BuildNodeStats(
     const GHistIndexMatrix &gmat,
     DMatrix *p_fmat,
@@ -382,6 +1777,62 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildNodeStats(
   }
   builder_monitor_.Stop("BuildNodeStats");
 }
+
+template<typename GradientSumT>
+void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
+          const GHistIndexMatrix &gmat,
+          RegTree *p_tree,
+          int *num_leaves,
+          int depth,
+          unsigned *timestamp,
+          std::vector<ExpandEntry>* nodes_for_apply_split,
+          std::vector<ExpandEntry>* temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask, int n_call, std::vector<uint16_t>* compleate_splits ) {
+  auto evaluator = tree_evaluator_.GetEvaluator();
+  size_t i = 0;
+  CHECK_EQ(compleate_trees_depth_wise_.size(), qexpand_depth_wise_.size());
+  for (auto const& entry : qexpand_depth_wise_) {
+    int nid = entry.nid;
+
+    if (snode_[nid].best.loss_chg < kRtEps ||
+        (param_.max_depth > 0 && depth == param_.max_depth) ||
+        (param_.max_leaves > 0 && (*num_leaves) == param_.max_leaves)) {
+//          std::cout << "node " << nid << " is leaf!: " << compleate_trees_depth_wise_[i] << " depth: " << depth <<  std::endl;
+
+      (*p_tree)[nid].SetLeaf(snode_[nid].weight * param_.learning_rate);
+      *(leaf_mask + compleate_trees_depth_wise_[i]/64) |= ((uint64_t)(1) << (compleate_trees_depth_wise_[i] % 64));
+    } else {
+    //  std::cout << " construct split :{" << i << ") ";
+      nodes_for_apply_split->push_back(entry);
+      compleate_splits->push_back(compleate_trees_depth_wise_[i]);
+      NodeEntry& e = snode_[nid];
+      bst_float left_leaf_weight =
+          evaluator.CalcWeight(nid, param_, GradStats{e.best.left_sum}) * param_.learning_rate;
+      bst_float right_leaf_weight =
+          evaluator.CalcWeight(nid, param_, GradStats{e.best.right_sum}) * param_.learning_rate;
+      p_tree->ExpandNode(nid, e.best.SplitIndex(), e.best.split_value,
+                         e.best.DefaultLeft(), e.weight, left_leaf_weight,
+                         right_leaf_weight, e.best.loss_chg, e.stats.GetHess(),
+                         e.best.left_sum.GetHess(), e.best.right_sum.GetHess());
+// if (n_call == 92 || n_call == 93 || n_call == 94)
+// std::cout << "nid: " << nid << " e.best.SplitIndex(): " << e.best.SplitIndex() << " e.best.split_value: "
+//  << e.best.split_value << " e.weight: " <<  e.weight << " left_leaf_weight:" << left_leaf_weight
+//   << " right_leaf_weight: " << right_leaf_weight << std::endl;
+      int left_id = (*p_tree)[nid].LeftChild();
+      int right_id = (*p_tree)[nid].RightChild();
+      temp_qexpand_depth->push_back(ExpandEntry(left_id, right_id,
+                                                p_tree->GetDepth(left_id), 0.0, (*timestamp)++));
+      temp_qexpand_depth->push_back(ExpandEntry(right_id, left_id,
+                                                p_tree->GetDepth(right_id), 0.0, (*timestamp)++));
+      compleate_tmp->push_back(2*compleate_trees_depth_wise_[i]);
+      compleate_tmp->push_back(2*compleate_trees_depth_wise_[i] + 1);
+      // - 1 parent + 2 new children
+      (*num_leaves)++;
+    }
+    ++i;
+  }
+}
+
+
 
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
@@ -425,6 +1876,7 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToTree(
   }
 }
 
+
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
     const GHistIndexMatrix &gmat,
@@ -442,6 +1894,33 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
   ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree);
 }
 
+template<typename GradientSumT>
+void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
+    const GHistIndexMatrix &gmat,
+    const ColumnMatrix &column_matrix,
+    RegTree *p_tree,
+    int *num_leaves,
+    int depth,
+    unsigned *timestamp,
+    std::vector<ExpandEntry> *temp_qexpand_depth,
+    std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask,
+    std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, int n_call) {
+//std::cout << "!EvaluateAndApplySplits start " << std::endl;
+
+
+//std::cout << "\nEvaluateSplits start " << std::endl;
+  EvaluateSplits(qexpand_depth_wise_, gmat, hist_, *p_tree);
+//std::cout << "EvaluateSplits finished " << std::endl;
+
+  std::vector<ExpandEntry> nodes_for_apply_split;
+  std::vector<uint16_t> compleate_apply_split;
+  AddSplitsToTree(gmat, p_tree, num_leaves, depth, timestamp,
+                  &nodes_for_apply_split, temp_qexpand_depth, compleate_tmp, leaf_mask, n_call, &compleate_apply_split);
+//std::cout << "AddSplitsToTree finished " << std::endl;
+  ApplySplit(nodes_for_apply_split, gmat, column_matrix, hist_, p_tree, depth, split_conditions, split_ind, &compleate_apply_split);
+//std::cout << "ApplySplit finished " << std::endl;
+}
+
 // Split nodes to 2 sets depending on amount of rows in each node
 // Histograms for small nodes will be built explicitly
 // Histograms for big nodes will be built by 'Subtraction Trick'
@@ -449,6 +1928,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
 //    and use 'Subtraction Trick' to built the histogram for the right child node.
 //    This ensures that the workers operate on the same set of tree nodes.
 template <typename GradientSumT>
+template<bool isDense>
 void QuantileHistMaker::Builder<GradientSumT>::SplitSiblings(
     const std::vector<ExpandEntry> &nodes,
     std::vector<ExpandEntry> *small_siblings,
@@ -462,20 +1942,24 @@ void QuantileHistMaker::Builder<GradientSumT>::SplitSiblings(
     } else {
       const int32_t left_id = (*p_tree)[node.Parent()].LeftChild();
       const int32_t right_id = (*p_tree)[node.Parent()].RightChild();
-
-      if (nid == left_id && row_set_collection_[left_id ].Size() <
-                            row_set_collection_[right_id].Size()) {
-        small_siblings->push_back(entry);
-      } else if (nid == right_id && row_set_collection_[right_id].Size() <=
-                                    row_set_collection_[left_id ].Size()) {
-        small_siblings->push_back(entry);
-      } else {
+      if (isDense) {
         big_siblings->push_back(entry);
+      } else {
+        if (nid == left_id && row_set_collection_[left_id ].Size() <
+                              row_set_collection_[right_id].Size()) {
+          small_siblings->push_back(entry);
+        } else if (nid == right_id && row_set_collection_[right_id].Size() <=
+                                      row_set_collection_[left_id ].Size()) {
+          small_siblings->push_back(entry);
+        } else {
+          big_siblings->push_back(entry);
+        }
       }
     }
   }
   builder_monitor_.Stop("SplitSiblings");
 }
+
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
   const GHistIndexMatrix &gmat,
@@ -517,6 +2001,135 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
     }
   }
 }
+
+template<typename GradientSumT>
+template<typename BinIdxType>
+void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWiseDense(
+  const GHistIndexMatrix &gmat,
+  const GHistIndexBlockMatrix &gmatb,
+  const ColumnMatrix &column_matrix,
+  DMatrix *p_fmat,
+  RegTree *p_tree,
+  const std::vector<GradientPair> &gpair_h) {
+
+  if (histograms_.size() == 0) {
+    const size_t n_threads = omp_get_max_threads();
+    const size_t n_bins = gmat.cut.Ptrs().back();
+    const size_t n_features = gmat.cut.Ptrs().size() - 1;
+    const uint32_t* offsets = gmat.index.Offset();
+    histograms_.resize(n_threads);
+    offsets64_.resize(n_threads);
+    #pragma omp parallel num_threads(n_threads)
+    {
+      const size_t tid = omp_get_thread_num();
+      histograms_[tid].resize(n_bins*(1 << (param_.max_depth)), 0);
+      offsets64_[tid].resize(n_features*(1 << (param_.max_depth - 1)), 0);
+      uint64_t* offsets640 = offsets64_[tid].data();
+
+      for(size_t nid = 0; nid < (1 << (param_.max_depth - 1)); ++nid) {
+        for(size_t i = 0; i < n_features; ++i) {
+          offsets640[nid*n_features + i] = (uint64_t)(histograms_[tid].data() + nid*n_bins*2) + 16*(uint64_t)(offsets[i]);
+        }
+      }
+    }
+
+
+  }
+
+  unsigned timestamp = 0;
+  int num_leaves = 0;
+      qexpand_depth_wise_.clear();
+      compleate_trees_depth_wise_.clear();
+  // in depth_wise growing, we feed loss_chg with 0.0 since it is not used anyway
+  qexpand_depth_wise_.emplace_back(ExpandEntry(ExpandEntry::kRootNid, ExpandEntry::kEmptyNid,
+      p_tree->GetDepth(ExpandEntry::kRootNid), 0.0, timestamp++));
+  compleate_trees_depth_wise_.emplace_back(0);
+  ++num_leaves;
+  node_ids_.resize(gmat.row_ptr.size() - 1,0);
+  std::vector<bst_uint> split_indexs(1 << param_.max_depth + 1);
+  std::vector<int32_t> split_values(1 << param_.max_depth + 1);
+//std::cout << "split_conditions.size(): " << split_values.size() << " split_ind.size(): " << split_indexs.size() << std::endl;
+
+    uint64_t leafs_mask[128] = {};
+
+static uint64_t n_call = 0;
+++n_call;
+//std::cout << "n_call: " << n_call << std::endl;
+  // if(n_call == 94) {
+  //   std::cout << std::endl;
+  //     std::cout << gpair_h[43] << "   ";// 0.67698/0.218678
+  //   std::cout << std::endl;
+  // }
+  std::vector<size_t>& row_indices = *row_set_collection_.Data();
+  const size_t size_threads = row_indices.size() == 0 ? (gmat.row_ptr.size() - 1) : row_indices.size();
+  if (param_.subsample >= 1.0f) {
+    CHECK_EQ(row_indices.size(), 0);
+  }
+  common::BlockedSpace2d space(1, [&](size_t node) {
+     // return gmat.row_ptr.size() - 1;
+     return size_threads;
+  }, 4096);
+
+  for (int depth = 0; depth < param_.max_depth + 1; depth++) {
+    int starting_index = std::numeric_limits<int>::max();
+    int sync_count = 0;
+    std::vector<ExpandEntry> temp_qexpand_depth;
+    std::vector<uint16_t> tmp_compleate_trees_depth;
+    SplitSiblings</*isDense*/ true>(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
+                  &nodes_for_subtraction_trick_, p_tree);
+    hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
+    uint64_t mask[128] = {};
+if(depth > 0) {
+
+    BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, mask, n_call);
+  //  std::cout << "\n BuildNodeStats finished" << std::endl;
+    DensePartition<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n DensePartition finished" << std::endl;
+    BuildLocalHistogramsDense<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n BuildLocalHistogramsDense finished" << std::endl;
+    DenseSync(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+ //   std::cout << "\n DenseSync finished" << std::endl;
+    for(uint32_t i = 0; i < 128; ++i) {
+      leafs_mask[i] = 0;
+    }
+    // leafs_mask[0] = 0; leafs_mask[1] = 0; leafs_mask[2] = 0; leafs_mask[3] = 0; leafs_mask[4] = 0; leafs_mask[5] = 0; leafs_mask[6] = 0; leafs_mask[7] = 0;
+    // leafs_mask[8] = 0; leafs_mask[9] = 0; leafs_mask[10] = 0; leafs_mask[11] = 0; leafs_mask[12] = 0; leafs_mask[13] = 0; leafs_mask[14] = 0; leafs_mask[15] = 0;
+} else {
+    DensePartition<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n 0DensePartition finished" << std::endl;
+    BuildLocalHistogramsDense<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n 0BuildLocalHistogramsDense finished" << std::endl;
+    DenseSync(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  //  std::cout << "\n 0DenseSync finished" << std::endl;
+    BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
+  //  std::cout << "\n 0BuildNodeStats finished" << std::endl;
+}
+    EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
+                   &temp_qexpand_depth, &tmp_compleate_trees_depth, leafs_mask, &split_values, &split_indexs, n_call);
+   // std::cout << "\n EvaluateAndApplySplits finished depth: " << depth << std::endl;
+    // clean up
+    nodes_for_subtraction_trick_.clear();
+    nodes_for_explicit_hist_build_.clear();
+    if (temp_qexpand_depth.empty()) {
+      if (depth != param_.max_depth) {
+        BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, mask, n_call);
+        DensePartition<BinIdxType>(gmat, gmatb, p_tree, gpair_h, param_.max_depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+      }
+      qexpand_depth_wise_.clear();
+      compleate_trees_depth_wise_.clear();
+      break;
+    } else {
+      qexpand_depth_wise_.clear();
+      qexpand_depth_wise_ = temp_qexpand_depth;
+      compleate_trees_depth_wise_.clear();
+      compleate_trees_depth_wise_ = tmp_compleate_trees_depth;
+      tmp_compleate_trees_depth.clear();
+      temp_qexpand_depth.clear();
+    }
+  }
+  //std::cout << "ExpandWithDepth finished" << std::endl;
+}
+
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
     const GHistIndexMatrix& gmat,
@@ -594,16 +2207,13 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
   }
   builder_monitor_.Stop("ExpandWithLossGuide");
 }
-
 template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::Update(
     const GHistIndexMatrix &gmat, const GHistIndexBlockMatrix &gmatb,
     const ColumnMatrix &column_matrix, HostDeviceVector<GradientPair> *gpair,
     DMatrix *p_fmat, RegTree *p_tree) {
   builder_monitor_.Start("Update");
-
   const std::vector<GradientPair>& gpair_h = gpair->ConstHostVector();
-
   tree_evaluator_ =
       TreeEvaluator(param_, p_fmat->Info().num_col_, GenericParameter::kCpuId);
   interaction_constraints_.Reset();
@@ -613,16 +2223,39 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
   if (param_.grow_policy == TrainParam::kLossGuide) {
     ExpandWithLossGuide(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
   } else {
-    ExpandWithDepthWise(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
+    N_CALL = (param_.max_depth + 1) * 500;
+    if (is_optimized_branch_) {
+      switch (gmat.index.GetBinTypeSize()) {
+        case common::kUint8BinsTypeSize: {
+          ExpandWithDepthWiseDense<uint8_t>(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
+          break;
+        }
+        case common::kUint16BinsTypeSize: {
+          ExpandWithDepthWiseDense<uint16_t>(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
+          break;
+        }
+        case common::kUint32BinsTypeSize: {
+          ExpandWithDepthWiseDense<uint32_t>(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
+          break;
+        }
+        default: {
+          CHECK(false);  // no default behavior
+        }
+      }
+    } else {
+      ExpandWithDepthWise(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
+    }
   }
-
+//std::cout << "Pstats update??? : " << p_tree->param.num_nodes << std::endl;
   for (int nid = 0; nid < p_tree->param.num_nodes; ++nid) {
+//std::cout << "nid: " << nid << std::endl;
     p_tree->Stat(nid).loss_chg = snode_[nid].best.loss_chg;
     p_tree->Stat(nid).base_weight = snode_[nid].weight;
     p_tree->Stat(nid).sum_hess = static_cast<float>(snode_[nid].stats.GetHess());
   }
+//std::cout << "Pstats update??? finished" << std::endl;
   pruner_->Update(gpair, p_fmat, std::vector<RegTree*>{p_tree});
-
+//std::cout << "Pruner finished finished" << std::endl;
   builder_monitor_.Stop("Update");
 }
 
@@ -691,6 +2324,97 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
 
         feats.Drop(inst);
       });
+    }
+  }
+  builder_monitor_.Stop("UpdatePredictionCache");
+  return true;
+}
+
+
+template<typename GradientSumT>
+bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
+    const DMatrix* data,
+    HostDeviceVector<bst_float>* p_out_preds, const int gid, const int ngroup) {
+  // p_last_fmat_ is a valid pointer as long as UpdatePredictionCache() is called in
+  // conjunction with Update().
+  if (!p_last_fmat_ || !p_last_tree_ || data != p_last_fmat_) {
+    return false;
+  }
+  builder_monitor_.Start("UpdatePredictionCache");
+static int n_call = 0;
+++n_call;
+  std::vector<bst_float>& out_preds = p_out_preds->HostVector();
+
+  CHECK_GT(out_preds.size(), 0U);
+  std::vector<size_t>& row_indices = *row_set_collection_.Data();
+
+  if (row_indices.size() == 0) {
+    CHECK_GE(param_.subsample, 1);
+    common::BlockedSpace2d space(1, [&](size_t node) {
+      return node_ids_.size();
+    }, 1024);
+
+    common::ParallelFor2d(space, this->nthread_, [&](size_t node, common::Range1d r) {
+      for (size_t it = r.begin(); it <  r.end(); ++it) {
+        bst_float leaf_value;
+        // if a node is marked as deleted by the pruner, traverse upward to locate
+        // a non-deleted leaf.
+        int nid = (~((uint16_t)(1) << 15)) & node_ids_[it];
+        if ((*p_last_tree_)[nid].IsDeleted()) {
+          while ((*p_last_tree_)[nid].IsDeleted()) {
+            nid = (*p_last_tree_)[nid].Parent();
+          }
+          CHECK((*p_last_tree_)[nid].IsLeaf());
+        }
+        leaf_value = (*p_last_tree_)[nid].LeafValue();
+        out_preds[it*ngroup + gid] += leaf_value;
+      }
+    });
+  } else {
+    common::BlockedSpace2d space(1, [&](size_t node) {
+      return row_indices.size();
+    }, 1024);
+    common::ParallelFor2d(space, this->nthread_, [&](size_t node, common::Range1d r) {
+      for (size_t it = r.begin(); it <  r.end(); ++it) {
+        bst_float leaf_value;
+        // if a node is marked as deleted by the pruner, traverse upward to locate
+        // a non-deleted leaf.
+        const size_t row_id = row_indices[it];
+        int nid = (~((uint16_t)(1) << 15)) & node_ids_[row_id];
+        if ((*p_last_tree_)[nid].IsDeleted()) {
+          while ((*p_last_tree_)[nid].IsDeleted()) {
+            nid = (*p_last_tree_)[nid].Parent();
+          }
+          CHECK((*p_last_tree_)[nid].IsLeaf());
+        }
+        leaf_value = (*p_last_tree_)[nid].LeafValue();
+        out_preds[row_id*ngroup + gid] += leaf_value;
+      }
+    });
+
+    if (param_.subsample < 1.0f) {
+      // Making a real prediction for the remaining rows
+      size_t fvecs_size = feat_vecs_.size();
+      feat_vecs_.resize(omp_get_max_threads(), RegTree::FVec());
+      while (fvecs_size < feat_vecs_.size()) {
+        feat_vecs_[fvecs_size++].Init(data->Info().num_col_);
+      }
+      for (auto&& batch : p_last_fmat_mutable_->GetBatches<SparsePage>()) {
+        HostSparsePageView page_view = batch.GetView();
+        const auto num_parallel_ops = static_cast<bst_omp_uint>(unused_rows_.size());
+        common::ParallelFor(num_parallel_ops, [&](bst_omp_uint block_id) {
+          RegTree::FVec &feats = feat_vecs_[omp_get_thread_num()];
+          const SparsePage::Inst inst = page_view[unused_rows_[block_id]];
+          feats.Fill(inst);
+
+          const size_t row_num = unused_rows_[block_id] + batch.base_rowid;
+          const int lid = feats.HasMissing() ? p_last_tree_->GetLeafIndex<true>(feats) :
+                                              p_last_tree_->GetLeafIndex<false>(feats);
+          out_preds[row_num * ngroup + gid] += (*p_last_tree_)[lid].LeafValue();
+
+          feats.Drop(inst);
+        });
+      }
     }
   }
   builder_monitor_.Stop("UpdatePredictionCache");
@@ -805,6 +2529,25 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
   const auto& info = fmat.Info();
 
   {
+    /* determine layout of data */
+    const size_t nrow = info.num_row_;
+    const size_t ncol = info.num_col_;
+    const size_t nnz = info.num_nonzero_;
+    // number of discrete bins for feature 0
+    const uint32_t nbins_f0 = gmat.cut.Ptrs()[1] - gmat.cut.Ptrs()[0];
+    if (nrow * ncol == nnz) {
+      // dense data with zero-based indexing
+      data_layout_ = DataLayout::kDenseDataZeroBased;
+    } else if (nbins_f0 == 0 && nrow * (ncol - 1) == nnz) {
+      // dense data with one-based indexing
+      data_layout_ = DataLayout::kDenseDataOneBased;
+    } else {
+      // sparse data
+      data_layout_ = DataLayout::kSparseData;
+    }
+  }
+
+  {
     // initialize the row set
     row_set_collection_.Clear();
     // initialize histogram collection
@@ -812,7 +2555,6 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
     hist_.Init(nbins);
     hist_local_worker_.Init(nbins);
     hist_buffer_.Init(nbins);
-
     // initialize histogram builder
     dmlc::OMPException exc;
 #pragma omp parallel
@@ -825,7 +2567,10 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
     hist_builder_ = GHistBuilder<GradientSumT>(this->nthread_, nbins);
 
     std::vector<size_t>& row_indices = *row_set_collection_.Data();
-    row_indices.resize(info.num_row_);
+
+    if (!is_optimized_branch_ || param_.subsample < 1.0f) {
+      row_indices.resize(info.num_row_);
+    }
     size_t* p_row_indices = row_indices.data();
     // mark subsample and build list of member rows
 
@@ -837,7 +2582,7 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
       // We should check that the partitioning was done correctly
       // and each row of the dataset fell into exactly one of the categories
       CHECK_EQ(row_indices.size() + unused_rows_.size(), info.num_row_);
-    } else {
+    } else if (!is_optimized_branch_) {
       MemStackAllocator<bool, 128> buff(this->nthread_);
       bool* p_buff = buff.Get();
       std::fill(p_buff, p_buff + this->nthread_, false);
@@ -897,24 +2642,6 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
 
   row_set_collection_.Init();
 
-  {
-    /* determine layout of data */
-    const size_t nrow = info.num_row_;
-    const size_t ncol = info.num_col_;
-    const size_t nnz = info.num_nonzero_;
-    // number of discrete bins for feature 0
-    const uint32_t nbins_f0 = gmat.cut.Ptrs()[1] - gmat.cut.Ptrs()[0];
-    if (nrow * ncol == nnz) {
-      // dense data with zero-based indexing
-      data_layout_ = DataLayout::kDenseDataZeroBased;
-    } else if (nbins_f0 == 0 && nrow * (ncol - 1) == nnz) {
-      // dense data with one-based indexing
-      data_layout_ = DataLayout::kDenseDataOneBased;
-    } else {
-      // sparse data
-      data_layout_ = DataLayout::kSparseData;
-    }
-  }
   // store a pointer to the tree
   p_last_tree_ = &tree;
   if (data_layout_ == DataLayout::kDenseDataOneBased) {
@@ -982,13 +2709,18 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateSplits(
                                                const HistCollection<GradientSumT>& hist,
                                                const RegTree& tree) {
   builder_monitor_.Start("EvaluateSplits");
-
+//std::cout << "EvaluateSplits 1 \n";
   const size_t n_nodes_in_set = nodes_set.size();
   const size_t nthread = std::max(1, this->nthread_);
+//std::cout << "EvaluateSplits 1.1" << std::endl ;
+  //best_split_tloc_.resize(224);
 
   using FeatureSetType = std::shared_ptr<HostDeviceVector<bst_feature_t>>;
+//std::cout << "EvaluateSplits 1.2 " << std::endl ;
   std::vector<FeatureSetType> features_sets(n_nodes_in_set);
+//std::cout << "EvaluateSplits 1.3 " << nthread * n_nodes_in_set << std::endl ;
   best_split_tloc_.resize(nthread * n_nodes_in_set);
+//std::cout << "EvaluateSplits 2 " << std::endl ;
 
   // Generate feature set for each tree node
   for (size_t nid_in_set = 0; nid_in_set < n_nodes_in_set; ++nid_in_set) {
@@ -999,6 +2731,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateSplits(
       best_split_tloc_[nthread*nid_in_set + tid] = snode_[nid].best;
     }
   }
+//std::cout << "EvaluateSplits 3 \n";
 
   // Create 2D space (# of nodes to process x # of features to process)
   // to process them in parallel
@@ -1006,6 +2739,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateSplits(
   common::BlockedSpace2d space(n_nodes_in_set, [&](size_t nid_in_set) {
       return features_sets[nid_in_set]->Size();
   }, grain_size);
+//std::cout << "EvaluateSplits 4 \n";
 
   auto evaluator = tree_evaluator_.GetEvaluator();
   // Start parallel enumeration for all tree nodes in the set and all features
@@ -1029,6 +2763,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateSplits(
       }
     }
   });
+//std::cout << "EvaluateSplits 5 \n";
 
   // Find Best Split across threads for each node in nodes set
   for (unsigned nid_in_set = 0; nid_in_set < n_nodes_in_set; ++nid_in_set) {
@@ -1037,6 +2772,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateSplits(
       snode_[nid].best.Update(best_split_tloc_[nthread*nid_in_set + tid]);
     }
   }
+//std::cout << "EvaluateSplits 6 \n";
 
   builder_monitor_.Stop("EvaluateSplits");
 }
@@ -1198,6 +2934,7 @@ void QuantileHistMaker::Builder<GradientSumT>::PartitionKernel(
   partition_builder_.SetNRightElems(node_in_set, range.begin(), range.end(), n_right);
 }
 
+
 template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::FindSplitConditions(
                                                      const std::vector<ExpandEntry>& nodes,
@@ -1226,6 +2963,38 @@ void QuantileHistMaker::Builder<GradientSumT>::FindSplitConditions(
     (*split_conditions)[i] = split_cond;
   }
 }
+
+template <typename GradientSumT>
+void QuantileHistMaker::Builder<GradientSumT>::FindSplitConditions(
+                                                     const std::vector<ExpandEntry>& nodes,
+                                                     const RegTree& tree,
+                                                     const GHistIndexMatrix& gmat,
+                                                     std::vector<int32_t>* split_conditions, std::vector<uint16_t>* tmp) {
+  const size_t n_nodes = nodes.size();
+  //std::cout<< "n_nodes: " << n_nodes << "\n";
+  (*split_conditions)[0] = n_nodes;
+  //std::cout<< "(*split_conditions)[0]: " << (*split_conditions)[0] << "\n";
+  //split_conditions->resize(n_nodes);
+
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    const int32_t nid = nodes[i].nid;
+    const bst_uint fid = tree[nid].SplitIndex();
+    const bst_float split_pt = tree[nid].SplitCond();
+    const uint32_t lower_bound = gmat.cut.Ptrs()[fid];
+    const uint32_t upper_bound = gmat.cut.Ptrs()[fid + 1];
+    int32_t split_cond = -1;
+    // convert floating-point split_pt into corresponding bin_id
+    // split_cond = -1 indicates that split_pt is less than all known cut points
+    CHECK_LT(upper_bound,
+             static_cast<uint32_t>(std::numeric_limits<int32_t>::max()));
+    for (uint32_t bound = lower_bound; bound < upper_bound; ++bound) {
+      if (split_pt == gmat.cut.Values()[bound]) {
+        split_cond = static_cast<int32_t>(bound);
+      }
+    }
+    (*split_conditions)[(*tmp)[i] + 1] = split_cond;
+  }
+}
 template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToRowSet(
                                                const std::vector<ExpandEntry>& nodes,
@@ -1240,6 +3009,7 @@ void QuantileHistMaker::Builder<GradientSumT>::AddSplitsToRowSet(
         (*p_tree)[nid].RightChild(), n_left, n_right);
   }
 }
+
 
 template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<ExpandEntry> nodes,
@@ -1304,6 +3074,96 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
   AddSplitsToRowSet(nodes, p_tree);
   builder_monitor_.Stop("ApplySplit");
 }
+
+template <typename GradientSumT>
+void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<ExpandEntry> nodes,
+                                            const GHistIndexMatrix& gmat,
+                                            const ColumnMatrix& column_matrix,
+                                            const HistCollection<GradientSumT>& hist,
+                                            RegTree* p_tree, int depth, std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                                            std::vector<uint16_t>* compleate_splits ) {
+  std::string timer_name = "Partition:";
+  timer_name += std::to_string(depth);
+  builder_monitor_.Start("ApplySplit");
+  // 1. Find split condition for each split
+  const size_t n_nodes = nodes.size();
+  FindSplitConditions(nodes, *p_tree, gmat, split_conditions, compleate_splits);
+  //std::cout << "\n FindSplitConditions finished \n";
+  (*split_ind)[0] = n_nodes;
+  for (size_t i = 0; i < n_nodes; ++i) {
+      const int32_t nid = nodes[i].nid;
+      const bst_uint fid = (*p_tree)[nid].SplitIndex();
+      (*split_ind)[(*compleate_splits)[i] + 1] = fid;
+  }
+
+  builder_monitor_.Stop("ApplySplit");
+}
+template <typename GradientSumT>
+void QuantileHistMaker::Builder<GradientSumT>::InitNewNode(int nid,
+                                             const GHistIndexMatrix& gmat,
+                                             const std::vector<GradientPair>& gpair,
+                                             const DMatrix& fmat,
+                                             const RegTree& tree, int i, uint64_t* mask) {
+  builder_monitor_.Start("InitNewNode");
+  {
+    snode_.resize(tree.param.num_nodes, NodeEntry(param_));
+  }
+
+  {
+    GHistRowT hist = hist_[nid];
+    GradientPairT grad_stat;
+    if (tree[nid].IsRoot()) {
+      if (data_layout_ == DataLayout::kDenseDataZeroBased
+          || data_layout_ == DataLayout::kDenseDataOneBased) {
+        const std::vector<uint32_t>& row_ptr = gmat.cut.Ptrs();
+        const uint32_t ibegin = row_ptr[fid_least_bins_];
+        const uint32_t iend = row_ptr[fid_least_bins_ + 1];
+        auto begin = hist.data();
+        for (uint32_t i = ibegin; i < iend; ++i) {
+          const GradientPairT et = begin[i];
+          grad_stat.Add(et.GetGrad(), et.GetHess());
+        }
+      } else {
+        const RowSetCollection::Elem e = row_set_collection_[nid];
+        for (const size_t* it = e.begin; it < e.end; ++it) {
+          grad_stat.Add(gpair[*it].GetGrad(), gpair[*it].GetHess());
+        }
+      }
+      histred_.Allreduce(&grad_stat, 1);
+      snode_[nid].stats = tree::GradStats(grad_stat.GetGrad(), grad_stat.GetHess());
+    } else {
+      int parent_id = tree[nid].Parent();
+      if (snode_[parent_id].best.left_sum.GetHess() < snode_[parent_id].best.right_sum.GetHess() && tree[nid].IsLeftChild()) {
+        //std::cout << "l:" << i << " ";
+        *(mask + i/64) |= ((uint64_t)(1) << (i%64));
+      }
+      if (snode_[parent_id].best.right_sum.GetHess() < snode_[parent_id].best.left_sum.GetHess() && !(tree[nid].IsLeftChild())) {
+        //std::cout << "r:" << i << " ";
+        *(mask + i/64) |= ((uint64_t)(1) << (i%64));
+      }
+      if (snode_[parent_id].best.right_sum.GetHess() == snode_[parent_id].best.left_sum.GetHess() && tree[nid].IsLeftChild()) {
+        *(mask + i/64) |= ((uint64_t)(1) << (i%64));
+      }
+      if (tree[nid].IsLeftChild()) {
+        snode_[nid].stats = snode_[parent_id].best.left_sum;
+      } else {
+        snode_[nid].stats = snode_[parent_id].best.right_sum;
+      }
+    }
+  }
+
+  // calculating the weights
+  {
+    auto evaluator = tree_evaluator_.GetEvaluator();
+    bst_uint parentid = tree[nid].Parent();
+    snode_[nid].weight = static_cast<float>(
+        evaluator.CalcWeight(parentid, param_, GradStats{snode_[nid].stats}));
+    snode_[nid].root_gain = static_cast<float>(
+        evaluator.CalcGain(parentid, param_, GradStats{snode_[nid].stats}));
+  }
+  builder_monitor_.Stop("InitNewNode");
+}
+
 template <typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::InitNewNode(int nid,
                                              const GHistIndexMatrix& gmat,

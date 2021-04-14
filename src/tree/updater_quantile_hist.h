@@ -207,12 +207,12 @@ class QuantileHistMaker: public TreeUpdater {
     explicit Builder(const TrainParam& param,
                      std::unique_ptr<TreeUpdater> pruner,
                      FeatureInteractionConstraintHost int_constraints_,
-                     DMatrix const* fmat)
+                     DMatrix const* fmat, const bool is_optimized_baranch)
       : param_(param),
         tree_evaluator_(param, fmat->Info().num_col_, GenericParameter::kCpuId),
         pruner_(std::move(pruner)),
         interaction_constraints_{std::move(int_constraints_)},
-        p_last_tree_(nullptr), p_last_fmat_(fmat) {
+        p_last_tree_(nullptr), p_last_fmat_(fmat), is_optimized_branch_(is_optimized_baranch) {
       builder_monitor_.Init("Quantile::Builder");
     }
     // update one tree, growing
@@ -248,6 +248,9 @@ class QuantileHistMaker: public TreeUpdater {
                                HostDeviceVector<bst_float>* p_out_preds,
                                const int gid = 0, const int ngroup = 1);
 
+    bool UpdatePredictionCacheDense(const DMatrix* data,
+                               HostDeviceVector<bst_float>* p_out_preds,
+                               const int gid = 0, const int ngroup = 1);
     void SetHistSynchronizer(HistSynchronizer<GradientSumT>* sync);
     void SetHistRowsAdder(HistRowsAdder<GradientSumT>* adder);
 
@@ -280,7 +283,17 @@ class QuantileHistMaker: public TreeUpdater {
         return ret;
       }
     };
+    struct AddrBeginEnd {
+      uint32_t* addr;
+      uint32_t b;
+      uint32_t e;
+    };
 
+    struct NodesBeginEnd {
+      uint32_t node_id;
+      uint32_t b;
+      uint32_t e;
+    };
     // initialize temp data structure
     void InitData(const GHistIndexMatrix& gmat,
                   const std::vector<GradientPair>& gpair,
@@ -299,6 +312,11 @@ class QuantileHistMaker: public TreeUpdater {
                         const GHistIndexMatrix& gmat,
                         const ColumnMatrix& column_matrix,
                         const HistCollection<GradientSumT>& hist,
+                        RegTree* p_tree, int depth, std::vector<int32_t>* split_conditions, std::vector<bst_uint>* slit_ind, std::vector<uint16_t>* compleate_splits);
+    void ApplySplit(std::vector<ExpandEntry> nodes,
+                        const GHistIndexMatrix& gmat,
+                        const ColumnMatrix& column_matrix,
+                        const HistCollection<GradientSumT>& hist,
                         RegTree* p_tree);
 
     template <typename BinIdxType>
@@ -310,8 +328,15 @@ class QuantileHistMaker: public TreeUpdater {
 
 
     void FindSplitConditions(const std::vector<ExpandEntry>& nodes, const RegTree& tree,
+                             const GHistIndexMatrix& gmat, std::vector<int32_t>* split_conditions,  std::vector<uint16_t>* compleate_splits);
+    void FindSplitConditions(const std::vector<ExpandEntry>& nodes, const RegTree& tree,
                              const GHistIndexMatrix& gmat, std::vector<int32_t>* split_conditions);
 
+    void InitNewNode(int nid,
+                     const GHistIndexMatrix& gmat,
+                     const std::vector<GradientPair>& gpair,
+                     const DMatrix& fmat,
+                     const RegTree& tree, int i, uint64_t* mask);
     void InitNewNode(int nid,
                      const GHistIndexMatrix& gmat,
                      const std::vector<GradientPair>& gpair,
@@ -340,11 +365,41 @@ class QuantileHistMaker: public TreeUpdater {
                              DMatrix *p_fmat,
                              RegTree *p_tree,
                              const std::vector<GradientPair> &gpair_h);
+    template <typename BinIdxType>
+    void ExpandWithDepthWiseDense(const GHistIndexMatrix &gmat,
+                             const GHistIndexBlockMatrix &gmatb,
+                             const ColumnMatrix &column_matrix,
+                             DMatrix *p_fmat,
+                             RegTree *p_tree,
+                             const std::vector<GradientPair> &gpair_h);
+    template <typename BinIdxType>
+    void BuildLocalHistogramsDense(const GHistIndexMatrix &gmat,
+                              const GHistIndexBlockMatrix &gmatb,
+                              RegTree *p_tree,
+                              const std::vector<GradientPair> &gpair_h, int depth,
+                              std::vector<std::vector<GradientSumT>>* histograms, uint16_t* nodes_id,
+                              std::vector<int32_t>* split_conditions, std::vector<bst_uint>* slit_ind,
+                              const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space);
 
     void BuildLocalHistograms(const GHistIndexMatrix &gmat,
                               const GHistIndexBlockMatrix &gmatb,
                               RegTree *p_tree,
                               const std::vector<GradientPair> &gpair_h);
+    template <typename BinIdxType>
+    void DensePartition(const GHistIndexMatrix &gmat,
+                              const GHistIndexBlockMatrix &gmatb,
+                              RegTree *p_tree,
+                              const std::vector<GradientPair> &gpair_h, int depth = 0,
+                              std::vector<std::vector<GradientSumT>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
+                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr,
+                              const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr, int max_depth = 0, common::BlockedSpace2d* space = nullptr);
+    void DenseSync(const GHistIndexMatrix &gmat,
+                              const GHistIndexBlockMatrix &gmatb,
+                              RegTree *p_tree,
+                              const std::vector<GradientPair> &gpair_h, int depth = 0,
+                              std::vector<std::vector<GradientSumT>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
+                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr,
+                              const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr, int max_depth = 0, common::BlockedSpace2d* space = nullptr);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,
@@ -356,6 +411,7 @@ class QuantileHistMaker: public TreeUpdater {
     // Split nodes to 2 sets depending on amount of rows in each node
     // Histograms for small nodes will be built explicitly
     // Histograms for big nodes will be built by 'Subtraction Trick'
+    template<bool isDense = false>
     void SplitSiblings(const std::vector<ExpandEntry>& nodes,
                    std::vector<ExpandEntry>* small_siblings,
                    std::vector<ExpandEntry>* big_siblings,
@@ -368,6 +424,10 @@ class QuantileHistMaker: public TreeUpdater {
     void BuildNodeStats(const GHistIndexMatrix &gmat,
                         DMatrix *p_fmat,
                         RegTree *p_tree,
+                        const std::vector<GradientPair> &gpair_h, uint64_t* mask, int n_call);
+    void BuildNodeStats(const GHistIndexMatrix &gmat,
+                        DMatrix *p_fmat,
+                        RegTree *p_tree,
                         const std::vector<GradientPair> &gpair_h);
 
     void EvaluateAndApplySplits(const GHistIndexMatrix &gmat,
@@ -376,7 +436,25 @@ class QuantileHistMaker: public TreeUpdater {
                                 int *num_leaves,
                                 int depth,
                                 unsigned *timestamp,
+                                std::vector<ExpandEntry> *temp_qexpand_depth,
+                                std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask,
+                                std::vector<int32_t>* split_conditions, std::vector<bst_uint>* slit_ind, int n_call);
+    void EvaluateAndApplySplits(const GHistIndexMatrix &gmat,
+                                const ColumnMatrix &column_matrix,
+                                RegTree *p_tree,
+                                int *num_leaves,
+                                int depth,
+                                unsigned *timestamp,
                                 std::vector<ExpandEntry> *temp_qexpand_depth);
+
+    void AddSplitsToTree(
+              const GHistIndexMatrix &gmat,
+              RegTree *p_tree,
+              int *num_leaves,
+              int depth,
+              unsigned *timestamp,
+              std::vector<ExpandEntry>* nodes_for_apply_split,
+              std::vector<ExpandEntry>* temp_qexpand_depth, std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask, int n_call, std::vector<uint16_t>* compleate_splits );
 
     void AddSplitsToTree(
               const GHistIndexMatrix &gmat,
@@ -412,6 +490,14 @@ class QuantileHistMaker: public TreeUpdater {
     std::vector<size_t> unused_rows_;
     // feature vectors for subsampled prediction
     std::vector<RegTree::FVec> feat_vecs_;
+    std::vector<std::vector<uint32_t>> vec_rows_;
+    std::vector<std::vector<AddrBeginEnd>> threads_addr_;
+    std::vector<int> prev_level_nodes_;
+    std::vector<std::vector<GradientSumT>> histograms_;
+    std::vector<std::vector<uint64_t>> offsets64_;
+    std::vector<std::vector<uint16_t>> threads_id_for_nodes_;
+    std::vector<uint16_t> node_ids_;
+//    std::vector<uint16_t> node_ids_global;
     // the temp space for split
     std::vector<RowSetCollection::Split> row_split_tloc_;
     std::vector<SplitEntry> best_split_tloc_;
@@ -430,7 +516,7 @@ class QuantileHistMaker: public TreeUpdater {
     std::unique_ptr<TreeUpdater> pruner_;
     FeatureInteractionConstraintHost interaction_constraints_;
 
-    static constexpr size_t kPartitionBlockSize = 2048;
+    static constexpr size_t kPartitionBlockSize = 4096;
     common::PartitionBuilder<kPartitionBlockSize> partition_builder_;
 
     // back pointers to tree and data matrix
@@ -444,6 +530,7 @@ class QuantileHistMaker: public TreeUpdater {
 
     std::unique_ptr<ExpandQueue> qexpand_loss_guided_;
     std::vector<ExpandEntry> qexpand_depth_wise_;
+    std::vector<uint16_t> compleate_trees_depth_wise_;
     // key is the node id which should be calculated by Subtraction Trick, value is the node which
     // provides the evidence for substracts
     std::vector<ExpandEntry> nodes_for_subtraction_trick_;
@@ -458,6 +545,7 @@ class QuantileHistMaker: public TreeUpdater {
     rabit::Reducer<GradientPairT, GradientPairT::Reduce> histred_;
     std::unique_ptr<HistSynchronizer<GradientSumT>> hist_synchronizer_;
     std::unique_ptr<HistRowsAdder<GradientSumT>> hist_rows_adder_;
+    bool is_optimized_branch_ = false;
   };
   common::Monitor updater_monitor_;
 
