@@ -6,7 +6,7 @@
  */
 #include <dmlc/timer.h>
 #include <rabit/rabit.h>
-
+#include<stdio.h>
 #include <cmath>
 #include <memory>
 #include <vector>
@@ -381,15 +381,42 @@ constexpr size_t Prefetch1::kNoPrefetchSize;
     asm("vaddpd %xmm2, %xmm1, %xmm3;");                                                             \
     asm("vmovapd %%xmm3, (%0);" : : "r" ( offset##IDX ) : /*"%xmm3"*/);                 \
 
-template<typename BinIdxType, bool no_sampling>
+template<typename BinIdxType, bool no_sampling, bool read_by_column>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
                           const size_t row_indices_begin,
                           const size_t row_indices_end,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<double> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64, size_t* rows_ptr) {
-  //const size_t size = row_indices.Size();
-  //const size_t* rid = row_indices.begin;
+                          GHistRow<double> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64, size_t* rows_ptr, const ColumnMatrix *column_matrix) {
+if(read_by_column) {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const uint32_t* offsets = gmat.index.Offset();
+  double* hist_data = reinterpret_cast<double*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+      const BinIdxType* gr_index_local = (*column_matrix).GetColumn<BinIdxType>(0)->
+                                           GetFeatureBinIdxPtr().data();
+      double* hist_data_local = hist_data + two*(offsets[0]);
+      for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+        const size_t row_id = no_sampling ? ii : rows_ptr[ii];
+        nodes_ids[row_id] = 0;
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      }
+    for (size_t cid = 1; cid < n_features; ++cid) {
+      gr_index_local = (*column_matrix).GetColumn<BinIdxType>(cid)->
+                                           GetFeatureBinIdxPtr().data();
+      hist_data_local = hist_data + two*(offsets[cid]);
+      for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+        const size_t row_id = no_sampling ? ii : rows_ptr[ii];
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      }
+    }
+} else {
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
   const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
   const uint32_t* offsets = gmat.index.Offset();
@@ -400,13 +427,6 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
                            // to work with gradient pairs as a singe row FP array
   const size_t nb = n_features / 13;
   const size_t tail_size = n_features - nb*13;
-
-  // std::vector<uint64_t> offsets64_v(n_features);
-  // uint64_t* offsets64 = &(offsets64_v[0]);
-
-  // for(size_t i = 0; i < n_features; ++i) {
-  //   offsets64[i] = (uint64_t)hist_data + 16*(uint64_t)(offsets[i]);
-  // }
 
   for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
     const size_t i = no_sampling ? ii : rows_ptr[ii];
@@ -437,17 +457,45 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
     }
   }
 }
+}
 
 
-template<typename BinIdxType, bool no_sampling>
+template<typename BinIdxType, bool no_sampling, bool read_by_column>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
                           const size_t row_indices_begin,
                           const size_t row_indices_end,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<float> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64, size_t* rows_ptr) {
-  //const size_t size = row_indices.Size();
-  //const size_t* rid = row_indices.begin;
+                          GHistRow<float> hist, const BinIdxType* numa, uint16_t* nodes_ids, uint64_t* offsets64, size_t* rows_ptr, const ColumnMatrix *column_matrix) {
+if(read_by_column) {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const uint32_t* offsets = gmat.index.Offset();
+  float* hist_data = reinterpret_cast<float*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+      const BinIdxType* gr_index_local = (*column_matrix).GetColumn<BinIdxType>(0)->
+                                           GetFeatureBinIdxPtr().data();
+      float* hist_data_local = hist_data + two*(offsets[0]);
+      for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+        const size_t row_id = no_sampling ? ii : rows_ptr[ii];
+        nodes_ids[row_id] = 0;
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      }
+  for (size_t cid = 1; cid < n_features; ++cid) {
+      gr_index_local = (*column_matrix).GetColumn<BinIdxType>(cid)->
+                                           GetFeatureBinIdxPtr().data();
+      hist_data_local = hist_data + two*(offsets[cid]);
+      for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
+        const size_t row_id = no_sampling ? ii : rows_ptr[ii];
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1] += pgh[idx_gh+1];
+      }
+    }
+} else {
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
   const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
   const uint32_t* offsets = gmat.index.Offset();
@@ -484,6 +532,7 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
       UNR(jb,0);
     }
   }
+}
 }
 
 template<typename BinIdxType>
@@ -674,13 +723,34 @@ void JustPartitionColumnar(const size_t row_indices_begin,
 }
 
 
-template<bool do_prefetch, typename BinIdxType, int depth0>
+template<bool do_prefetch, typename BinIdxType, int depth0, bool read_by_column, bool feature_blocking>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
                           const uint32_t* rows,
                           const uint32_t row_size,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<double> hist, const BinIdxType* numa, uint16_t* nodes_ids, const uint32_t n_nodes, uint64_t* offsets640) {
+                          GHistRow<double> hist, const BinIdxType* numa, uint16_t* nodes_ids, const uint32_t n_nodes, uint64_t* offsets640, const ColumnMatrix *column_matrix, const size_t n_features_in_block) {
+if (read_by_column) {
+  const uint32_t n_bins = gmat.cut.Ptrs().back();
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const uint32_t* offsets = gmat.index.Offset();
+  double* hist_data = reinterpret_cast<double*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+
+  for (size_t cid = 0; cid < n_features; ++cid) {
+      const BinIdxType* gr_index_local = (*column_matrix).GetColumn<BinIdxType>(cid)->
+                                           GetFeatureBinIdxPtr().data();
+      double* hist_data_local = hist_data + two*(offsets[cid]);
+      for (size_t ii = 0; ii < row_size; ++ii) {
+        const size_t row_id = rows[ii];
+        const uint32_t nid = nodes_ids[row_id];
+        const size_t idx_gh = row_id << 1;
+        const uint32_t idx_bin = static_cast<uint32_t>(gr_index_local[row_id]) << 1;
+        hist_data_local[idx_bin + nid*2*n_bins]   += pgh[idx_gh];
+        hist_data_local[idx_bin+1  + nid*2*n_bins] += pgh[idx_gh+1];
+      }
+    }
+} else if (feature_blocking) {
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
   const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
   const uint32_t* offsets = gmat.index.Offset();
@@ -692,14 +762,66 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
                            // to work with gradient pairs as a singe row FP array
   const size_t nb = n_features / 13;
   const size_t tail_size = n_features - nb*13;
-  // std::vector<uint64_t> offsets64_v(n_features*n_nodes);
-  // uint64_t* offsets640 = &(offsets64_v[0]);
 
-  // for(size_t nid = 0; nid < n_nodes; ++nid) {
-  //   for(size_t i = 0; i < n_features; ++i) {
-  //     offsets640[nid*n_features + i] = (uint64_t)(hist_data0 + nid*n_bins*2) + 16*(uint64_t)(offsets[i]);
-  //   }
-  // }
+  for (size_t ib = 0; ib < nb; ++ib) {
+  for (size_t ri = 0; ri < row_size; ++ri) {
+      const size_t i = rows[ri];
+      const size_t icol_start = i * n_features;
+      const BinIdxType* gr_index_local = gradient_index + icol_start;
+      const size_t idx_gh = two * i;
+      const uint32_t nid = nodes_ids[i];
+
+      const uint64_t* offsets64 = offsets640 + nid*n_features;
+      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+
+      double* hist_data = hist_data0 + nid*n_bins*2;
+        VECTOR_UNR(0, ib);
+        VECTOR_UNR(1, ib);
+        VECTOR_UNR(2, ib);
+        VECTOR_UNR(3, ib);
+        VECTOR_UNR(4, ib);
+        VECTOR_UNR(5, ib);
+        VECTOR_UNR(6, ib);
+        VECTOR_UNR(7, ib);
+        VECTOR_UNR(8, ib);
+        VECTOR_UNR(9, ib);
+        VECTOR_UNR(10, ib);
+        VECTOR_UNR(11, ib);
+        VECTOR_UNR(12, ib);
+    }
+}
+
+  for (size_t ri = 0; ri < row_size; ++ri) {
+      const size_t i = rows[ri];
+      const size_t icol_start = i * n_features;
+      const BinIdxType* gr_index_local = gradient_index + icol_start;
+      const size_t idx_gh = two * i;
+      const uint32_t nid = nodes_ids[i];
+      const size_t icol_start_prefetch = rows[ri + Prefetch1::kPrefetchOffset] * n_features;
+
+      const uint64_t* offsets64 = offsets640 + nid*n_features;
+      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+
+      double* hist_data = hist_data0 + nid*n_bins*2;
+      for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
+          VECTOR_UNR(jb,0);
+      }
+    }
+
+  } else {
+  const float* pgh = reinterpret_cast<const float*>(gpair.data());
+  const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
+  const uint32_t* offsets = gmat.index.Offset();
+  const uint32_t n_bins = gmat.cut.Ptrs().back();
+  double* hist_data0 = reinterpret_cast<double*>(hist.data());
+  const uint32_t two {2};  // Each element from 'gpair' and 'hist' contains
+                           // 2 FP values: gradient and hessian.
+                           // So we need to multiply each row-index/bin-index by 2
+                           // to work with gradient pairs as a singe row FP array
+  const size_t nb = n_features / 13;
+  const size_t tail_size = n_features - nb*13;
 
   const size_t size_with_prefetch = row_size > Prefetch1::kPrefetchOffset ? row_size - Prefetch1::kPrefetchOffset : 0;
     for (size_t ri = 0; ri < size_with_prefetch; ++ri) {
@@ -773,17 +895,18 @@ void BuildHistKernel(const std::vector<GradientPair>& gpair,
           VECTOR_UNR(jb,0);
       }
     }
+  }
 }
 
 
 
-template<bool do_prefetch, typename BinIdxType, int depth0>
+template<bool do_prefetch, typename BinIdxType, int depth0, bool read_by_column, bool feature_blocking>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
                           const uint32_t* rows,
                           const uint32_t row_size,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
-                          GHistRow<float> hist, const BinIdxType* numa, uint16_t* nodes_ids, const uint32_t n_nodes, uint64_t* offsets640) {
+                          GHistRow<float> hist, const BinIdxType* numa, uint16_t* nodes_ids, const uint32_t n_nodes, uint64_t* offsets640, const ColumnMatrix *column_matrix, const size_t n_features_in_block) {
   const float* pgh = reinterpret_cast<const float*>(gpair.data());
   const BinIdxType* gradient_index = numa;//gmat.index.data<BinIdxType>();
   const uint32_t* offsets = gmat.index.Offset();
@@ -983,7 +1106,9 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                   summ_size1 += vec_rows_[i][0];
                 }
 static std::vector<std::vector<uint32_t>> threads_rows_nodes_wise(nthreads);
-if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins /*|| depth > 4*/) {
+const bool hist_fit_to_l2 = 1024*1024*0.8 > sizeof(GradientSumT)*2*gmat.cut.Ptrs().back();
+
+if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins || (depth > 2 && !hist_fit_to_l2)) {
   threads_id_for_nodes_.resize(1 << max_depth);
   //std::cout << "\n no reason to read sequentialy!: " << depth << ":" <<  n_features*summ_size1 / nthreads << std::endl;
   std::vector<std::vector<int>> nodes_count(nthreads);
@@ -1453,119 +1578,118 @@ builder_monitor_.Start("BuildLocalHistograms FULL");
   //    largest.push_back(i);
   //  }
   // }
+  const bool hist_fit_to_l2 = 1024*1024*0.8 > sizeof(GradientSumT)*2*gmat.cut.Ptrs().back();
+
 if(depth < max_depth) {
   builder_monitor_.Start(timer_name);
 
   if(depth == 0) {
-    #pragma omp parallel num_threads(nthreads)
-      {
-          size_t tid = omp_get_thread_num();
-          GradientSumT* hist = (*histograms)[tid].data();// + nid_c*2*n_bins;
-          for (size_t bin_id = 0; bin_id < 2*n_bins; ++bin_id) {
-            hist[bin_id] = 0;
-          }
-          const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
-          size_t chunck_size =
-              num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+    if (!hist_fit_to_l2) {
+      #pragma omp parallel num_threads(nthreads)
+        {
+            size_t tid = omp_get_thread_num();
+            GradientSumT* hist = (*histograms)[tid].data();// + nid_c*2*n_bins;
+            // for (size_t bin_id = 0; bin_id < 2*n_bins; ++bin_id) {
+            //   hist[bin_id] = 0;
+            // }
+            const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+            size_t chunck_size =
+                num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
 
-          size_t begin = chunck_size * tid;
-          size_t end = std::min(begin + chunck_size, num_blocks_in_space);
-          uint64_t local_time_alloc = 0;
-          if ((*row_set_collection_.Data()).size() == 0) {
-            for (auto i = begin; i < end; i++) {
-              common::Range1d r = space.GetRange(i);
-              GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
-              BuildHistKernel<BinIdxType, true>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), nullptr);
+            size_t begin = chunck_size * tid;
+            size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+            uint64_t local_time_alloc = 0;
+            if ((*row_set_collection_.Data()).size() == 0) {
+              for (auto i = begin; i < end; i++) {
+                common::Range1d r = space.GetRange(i);
+                GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+                BuildHistKernel<BinIdxType, true, true>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), nullptr, column_matrix);
+              }
+            } else {
+              for (auto i = begin; i < end; i++) {
+                common::Range1d r = space.GetRange(i);
+                GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+                BuildHistKernel<BinIdxType, false, true>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), (*row_set_collection_.Data()).data(), column_matrix);
+              }
             }
-          } else {
-            for (auto i = begin; i < end; i++) {
-              common::Range1d r = space.GetRange(i);
-              GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
-              BuildHistKernel<BinIdxType, false>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), (*row_set_collection_.Data()).data());
+        }
+    } else {
+      #pragma omp parallel num_threads(nthreads)
+        {
+            size_t tid = omp_get_thread_num();
+            GradientSumT* hist = (*histograms)[tid].data();// + nid_c*2*n_bins;
+            // for (size_t bin_id = 0; bin_id < 2*n_bins; ++bin_id) {
+            //   hist[bin_id] = 0;
+            // }
+            const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+            size_t chunck_size =
+                num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
+
+            size_t begin = chunck_size * tid;
+            size_t end = std::min(begin + chunck_size, num_blocks_in_space);
+            uint64_t local_time_alloc = 0;
+            if ((*row_set_collection_.Data()).size() == 0) {
+              for (auto i = begin; i < end; i++) {
+                common::Range1d r = space.GetRange(i);
+                GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+                BuildHistKernel<BinIdxType, true, false>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), nullptr, column_matrix);
+              }
+            } else {
+              for (auto i = begin; i < end; i++) {
+                common::Range1d r = space.GetRange(i);
+                GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+                BuildHistKernel<BinIdxType, false, false>(gpair_h, r.begin(), r.end(), gmat, n_features,  local_hist, numa, nodes_ids, offsets64_[tid].data(), (*row_set_collection_.Data()).data(), column_matrix);
+              }
             }
-          }
-      }
+        }
+    }
   } else {
-
+if(!hist_fit_to_l2) {
+  if(depth <= 2) {
     #pragma omp parallel num_threads(nthreads)
     {
           size_t tid = omp_get_thread_num();
           const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
           std::vector<AddrBeginEnd>& local_thread_addr = threads_addr_[tid];
           GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
-          switch(depth) {
-            case 0:
             for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
               const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
               const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
-              BuildHistKernel<false, BinIdxType, 0>(gpair_h, rows, size_r, gmat, n_features,
-                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data());
+              BuildHistKernel<false, BinIdxType, 1, true, false>(gpair_h, rows, size_r, gmat, n_features,
+                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
             }
-            break;
-            case 1:
-            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
-              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
-              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
-              BuildHistKernel<false, BinIdxType, 1>(gpair_h, rows, size_r, gmat, n_features,
-                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data());
-            }
-            break;
-            case 2:
-            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
-              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
-              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
-              BuildHistKernel<false, BinIdxType, 2>(gpair_h, rows, size_r, gmat, n_features,
-                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data());
-            }
-            break;
-            case 3:
-            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
-              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
-              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
-              BuildHistKernel<false, BinIdxType, 3>(gpair_h, rows, size_r, gmat, n_features,
-                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data());
-            }
-            break;
-            case 4:
-            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
-              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
-              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
-              BuildHistKernel<false, BinIdxType, 4>(gpair_h, rows, size_r, gmat, n_features,
-                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data());
-            }
-            break;
-            case 5:
-            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
-              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
-              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
-              BuildHistKernel<false, BinIdxType, 5>(gpair_h, rows, size_r, gmat, n_features,
-                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data());
-            }
-            break;
-            case 6:
-            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
-              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
-              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
-              BuildHistKernel<false, BinIdxType, 6>(gpair_h, rows, size_r, gmat, n_features,
-                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data());
-            }
-            break;
-            case 7:
-            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
-              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
-              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
-              BuildHistKernel<false, BinIdxType, 7>(gpair_h, rows, size_r, gmat, n_features,
-                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data());
-            }
-            break;
-          }
-          // for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
-          //   const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
-          //   const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
-          //   BuildHistKernel<false, BinIdxType>(gpair_h, rows, size_r, gmat, n_features,
-          //                                                 local_hist, numa, nodes_ids, 1 << depth);
-          // }
     }
+  } else {
+    #pragma omp parallel num_threads(nthreads)
+    {
+          size_t tid = omp_get_thread_num();
+          const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+          std::vector<AddrBeginEnd>& local_thread_addr = threads_addr_[tid];
+          GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+            for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+              BuildHistKernel<false, BinIdxType, 1, false, true>(gpair_h, rows, size_r, gmat, n_features,
+                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+            }
+    }
+  }
+} else {
+    #pragma omp parallel num_threads(nthreads)
+    {
+          size_t tid = omp_get_thread_num();
+          const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+          std::vector<AddrBeginEnd>& local_thread_addr = threads_addr_[tid];
+          GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+          for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+              const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+              const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+              BuildHistKernel<false, BinIdxType, 1, false, false>(gpair_h, rows, size_r, gmat, n_features,
+                                                            local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+          }
+    }
+
+}
   }
 
   builder_monitor_.Stop(timer_name);
