@@ -250,7 +250,7 @@ class QuantileHistMaker: public TreeUpdater {
 
     bool UpdatePredictionCacheDense(const DMatrix* data,
                                HostDeviceVector<bst_float>* p_out_preds,
-                               const int gid = 0, const int ngroup = 1);
+                               const int gid = 0, const int ngroup = 1, const GHistIndexMatrix* gmat_ptr = nullptr);
     void SetHistSynchronizer(HistSynchronizer<GradientSumT>* sync);
     void SetHistRowsAdder(HistRowsAdder<GradientSumT>* adder);
 
@@ -486,6 +486,7 @@ class QuantileHistMaker: public TreeUpdater {
     common::ColumnSampler column_sampler_;
     // the internal row sets
     RowSetCollection row_set_collection_;
+    std::vector<int32_t> saved_split_ind_;
     // tree rows that were not used for current training
     std::vector<size_t> unused_rows_;
     // feature vectors for subsampled prediction

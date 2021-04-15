@@ -134,13 +134,13 @@ bool QuantileHistMaker::UpdatePredictionCache(
     const DMatrix* data, HostDeviceVector<bst_float>* out_preds) {
     if (hist_maker_param_.single_precision_histogram && float_builder_) {
       if (data->IsDense() &&  param_.enable_feature_grouping <= 0) {
-        return float_builder_->UpdatePredictionCacheDense(data, out_preds);
+        return float_builder_->UpdatePredictionCacheDense(data, out_preds, 0, 1, &gmat_);
       } else{
         return float_builder_->UpdatePredictionCache(data, out_preds);
       }
     } else if (double_builder_) {
       if (data->IsDense() &&  param_.enable_feature_grouping <= 0) {
-        return double_builder_->UpdatePredictionCacheDense(data, out_preds);
+        return double_builder_->UpdatePredictionCacheDense(data, out_preds, 0, 1, &gmat_);
       } else{
         return double_builder_->UpdatePredictionCache(data, out_preds);
       }
@@ -154,13 +154,13 @@ bool QuantileHistMaker::UpdatePredictionCacheMulticlass(
     HostDeviceVector<bst_float>* out_preds, const int gid, const int ngroup) {
     if (hist_maker_param_.single_precision_histogram && float_builder_) {
       if (data->IsDense() && param_.enable_feature_grouping <= 0) {
-        return float_builder_->UpdatePredictionCacheDense(data, out_preds, gid, ngroup);
+        return float_builder_->UpdatePredictionCacheDense(data, out_preds, gid, ngroup, &gmat_);
       } else{
         return float_builder_->UpdatePredictionCache(data, out_preds, gid, ngroup);
       }
     } else if (double_builder_) {
       if (data->IsDense() && param_.enable_feature_grouping <= 0) {
-        return double_builder_->UpdatePredictionCacheDense(data, out_preds, gid, ngroup);
+        return double_builder_->UpdatePredictionCacheDense(data, out_preds, gid, ngroup, &gmat_);
       } else{
         return double_builder_->UpdatePredictionCache(data, out_preds, gid, ngroup);
       }
@@ -1125,7 +1125,7 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                   summ_size1 += vec_rows_[i][0];
                 }
 static std::vector<std::vector<uint32_t>> threads_rows_nodes_wise(nthreads);
-const bool hist_fit_to_l2 = 1024*1024*0.8 > sizeof(GradientSumT)*2*gmat.cut.Ptrs().back();
+const bool hist_fit_to_l2 = 1024*1024*0.8 > 16*gmat.cut.Ptrs().back();
 
 if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins || (depth > 2 && !hist_fit_to_l2)) {
   threads_id_for_nodes_.resize(1 << max_depth);
@@ -1597,7 +1597,7 @@ builder_monitor_.Start("BuildLocalHistograms FULL");
   //    largest.push_back(i);
   //  }
   // }
-  const bool hist_fit_to_l2 = 1024*1024*0.8 > sizeof(GradientSumT)*2*gmat.cut.Ptrs().back();
+  const bool hist_fit_to_l2 = 1024*1024*0.8 > 16*gmat.cut.Ptrs().back();
 
 if(depth < max_depth) {
   builder_monitor_.Start(timer_name);
@@ -2012,6 +2012,8 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWiseDense(
   RegTree *p_tree,
   const std::vector<GradientPair> &gpair_h) {
 
+  saved_split_ind_.clear();
+  saved_split_ind_.resize(1 << (param_.max_depth + 1), 0);
   if (histograms_.size() == 0) {
     const size_t n_threads = omp_get_max_threads();
     const size_t n_bins = gmat.cut.Ptrs().back();
@@ -2334,7 +2336,7 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
 template<typename GradientSumT>
 bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
     const DMatrix* data,
-    HostDeviceVector<bst_float>* p_out_preds, const int gid, const int ngroup) {
+    HostDeviceVector<bst_float>* p_out_preds, const int gid, const int ngroup, const GHistIndexMatrix* gmat_ptr) {
   // p_last_fmat_ is a valid pointer as long as UpdatePredictionCache() is called in
   // conjunction with Update().
   if (!p_last_fmat_ || !p_last_tree_ || data != p_last_fmat_) {
@@ -2391,32 +2393,30 @@ static int n_call = 0;
         out_preds[row_id*ngroup + gid] += leaf_value;
       }
     });
-
+  builder_monitor_.Start("UpdatePredictionCachePredict");
+//std::cout << "UpdatePredictionCachePredict started!!!"  << std::endl;
+//std::cout << "saved_split_ind_.data(): " << saved_split_ind_.data() << std::endl;
+//std::cout << "gmat_ptr: " << gmat_ptr << std::endl;
     if (param_.subsample < 1.0f) {
+        CHECK_LE(param_.max_bin, 256);
+        const uint8_t* data = (*gmat_ptr).index.data<uint8_t>();
+//std::cout << "data(): " << data << std::endl;
+        const size_t n_features = (*gmat_ptr).cut.Ptrs().size() - 1;
+//std::cout << "n_features(): " << n_features << std::endl;
+        const uint32_t* offsets = (*gmat_ptr).index.Offset();
+//std::cout << "offsets(): " << offsets << std::endl;
       // Making a real prediction for the remaining rows
-      size_t fvecs_size = feat_vecs_.size();
-      feat_vecs_.resize(omp_get_max_threads(), RegTree::FVec());
-      while (fvecs_size < feat_vecs_.size()) {
-        feat_vecs_[fvecs_size++].Init(data->Info().num_col_);
-      }
-      for (auto&& batch : p_last_fmat_mutable_->GetBatches<SparsePage>()) {
-        HostSparsePageView page_view = batch.GetView();
-        const auto num_parallel_ops = static_cast<bst_omp_uint>(unused_rows_.size());
-        common::ParallelFor(num_parallel_ops, [&](bst_omp_uint block_id) {
-          RegTree::FVec &feats = feat_vecs_[omp_get_thread_num()];
-          const SparsePage::Inst inst = page_view[unused_rows_[block_id]];
-          feats.Fill(inst);
-
-          const size_t row_num = unused_rows_[block_id] + batch.base_rowid;
-          const int lid = feats.HasMissing() ? p_last_tree_->GetLeafIndex<true>(feats) :
-                                              p_last_tree_->GetLeafIndex<false>(feats);
-          out_preds[row_num * ngroup + gid] += (*p_last_tree_)[lid].LeafValue();
-
-          feats.Drop(inst);
+        common::ParallelFor(unused_rows_.size(), [&](bst_omp_uint block_id) {
+          const size_t row_id = unused_rows_[block_id];
+          const uint8_t* feat = data + row_id * n_features;
+          const int lid = p_last_tree_->GetLeafIndex(feat, offsets, saved_split_ind_.data());
+          out_preds[row_id * ngroup + gid] += (*p_last_tree_)[lid].LeafValue();
         });
       }
+//std::cout << "UpdatePredictionCachePredict started!!!"  << std::endl;
+  builder_monitor_.Stop("UpdatePredictionCachePredict");
     }
-  }
+
   builder_monitor_.Stop("UpdatePredictionCache");
   return true;
 }
@@ -2567,10 +2567,12 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
     hist_builder_ = GHistBuilder<GradientSumT>(this->nthread_, nbins);
 
     std::vector<size_t>& row_indices = *row_set_collection_.Data();
+builder_monitor_.Start("InitDataResize");
 
     if (!is_optimized_branch_ || param_.subsample < 1.0f) {
       row_indices.resize(info.num_row_);
     }
+builder_monitor_.Stop("InitDataResize");
     size_t* p_row_indices = row_indices.data();
     // mark subsample and build list of member rows
 
@@ -2993,6 +2995,7 @@ void QuantileHistMaker::Builder<GradientSumT>::FindSplitConditions(
       }
     }
     (*split_conditions)[(*tmp)[i] + 1] = split_cond;
+    saved_split_ind_[nid] = split_cond;
   }
 }
 template <typename GradientSumT>
