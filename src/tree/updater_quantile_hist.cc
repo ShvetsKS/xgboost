@@ -1127,7 +1127,7 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
 static std::vector<std::vector<uint32_t>> threads_rows_nodes_wise(nthreads);
 const bool hist_fit_to_l2 = 1024*1024*0.8 > 16*gmat.cut.Ptrs().back();
 
-if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins || (depth > 2 && !hist_fit_to_l2)) {
+if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins || (depth > 2 && !hist_fit_to_l2) || (n_features == 61) && depth > 4) {
   threads_id_for_nodes_.resize(1 << max_depth);
   //std::cout << "\n no reason to read sequentialy!: " << depth << ":" <<  n_features*summ_size1 / nthreads << std::endl;
   std::vector<std::vector<int>> nodes_count(nthreads);

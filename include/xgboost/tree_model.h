@@ -741,7 +741,7 @@ inline int RegTree::GetLeafIndex(const uint8_t* feat, const uint32_t* offset, co
   while (!(*this)[nid].IsLeaf()) {
     const unsigned split_index = (*this)[nid].SplitIndex();
     const int32_t fvalue = (int32_t)(feat[split_index]) + (int32_t)(offset[split_index]);
-    nid = (*this)[nid].LeftChild() + !(fvalue < saved_split_ind[nid]);
+    nid = (*this)[nid].LeftChild() + !(fvalue <= saved_split_ind[nid]);
   }
   return nid;
 }
