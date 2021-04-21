@@ -153,13 +153,13 @@ bool QuantileHistMaker::UpdatePredictionCacheMulticlass(
     const DMatrix* data,
     HostDeviceVector<bst_float>* out_preds, const int gid, const int ngroup) {
     if (hist_maker_param_.single_precision_histogram && float_builder_) {
-      if (data->IsDense() && param_.enable_feature_grouping <= 0) {
+      if (data->IsDense() && param_.enable_feature_grouping <= 0 && param_.grow_policy == TrainParam::kDepthWise) {
         return float_builder_->UpdatePredictionCacheDense(data, out_preds, gid, ngroup, &gmat_);
       } else{
         return float_builder_->UpdatePredictionCache(data, out_preds, gid, ngroup);
       }
     } else if (double_builder_) {
-      if (data->IsDense() && param_.enable_feature_grouping <= 0) {
+      if (data->IsDense() && param_.enable_feature_grouping <= 0 && param_.grow_policy == TrainParam::kDepthWise) {
         return double_builder_->UpdatePredictionCacheDense(data, out_preds, gid, ngroup, &gmat_);
       } else{
         return double_builder_->UpdatePredictionCache(data, out_preds, gid, ngroup);
@@ -354,7 +354,6 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
   BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
   hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
 }
-size_t N_CALL = 0;
 uint64_t get_time() {
   struct timespec t;
   clock_gettime(CLOCK_MONOTONIC, &t);
@@ -2313,7 +2312,7 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
   if (param_.grow_policy == TrainParam::kLossGuide) {
     ExpandWithLossGuide(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
   } else {
-    N_CALL = (param_.max_depth + 1) * 500;
+    //N_CALL = (param_.max_depth + 1) * 500;
     if (is_optimized_branch_) {
       switch (gmat.index.GetBinTypeSize()) {
         case common::kUint8BinsTypeSize: {
@@ -2431,8 +2430,8 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
     return false;
   }
   builder_monitor_.Start("UpdatePredictionCache");
-int n_call = 0;
-++n_call;
+// int n_call = 0;
+// ++n_call;
   std::vector<bst_float>& out_preds = p_out_preds->HostVector();
 
   CHECK_GT(out_preds.size(), 0U);
