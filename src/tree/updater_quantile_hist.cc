@@ -64,7 +64,7 @@ void QuantileHistMaker::Configure(const Args& args) {
 template<typename GradientSumT>
 void QuantileHistMaker::SetBuilder(std::unique_ptr<Builder<GradientSumT>>* builder,
                                    DMatrix *dmat) {
-  const bool is_optimized_branch = (dmat->IsDense() && param_.enable_feature_grouping <= 0);
+  const bool is_optimized_branch = (dmat->IsDense() && param_.enable_feature_grouping <= 0 && param_.grow_policy == TrainParam::kDepthWise);
   builder->reset(new Builder<GradientSumT>(
                 param_,
                 std::move(pruner_),
@@ -133,13 +133,13 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
 bool QuantileHistMaker::UpdatePredictionCache(
     const DMatrix* data, HostDeviceVector<bst_float>* out_preds) {
     if (hist_maker_param_.single_precision_histogram && float_builder_) {
-      if (data->IsDense() &&  param_.enable_feature_grouping <= 0) {
+      if (data->IsDense() &&  param_.enable_feature_grouping <= 0 && param_.grow_policy == TrainParam::kDepthWise) {
         return float_builder_->UpdatePredictionCacheDense(data, out_preds, 0, 1, &gmat_);
       } else{
         return float_builder_->UpdatePredictionCache(data, out_preds);
       }
     } else if (double_builder_) {
-      if (data->IsDense() &&  param_.enable_feature_grouping <= 0) {
+      if (data->IsDense() &&  param_.enable_feature_grouping <= 0 && param_.grow_policy == TrainParam::kDepthWise) {
         return double_builder_->UpdatePredictionCacheDense(data, out_preds, 0, 1, &gmat_);
       } else{
         return double_builder_->UpdatePredictionCache(data, out_preds);
@@ -354,7 +354,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildHistogramsLossGuide(
   BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
   hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
 }
-static size_t N_CALL = 0;
+size_t N_CALL = 0;
 uint64_t get_time() {
   struct timespec t;
   clock_gettime(CLOCK_MONOTONIC, &t);
@@ -1029,12 +1029,11 @@ void QuantileHistMaker::Builder<GradientSumT>::DensePartition(
   std::string depth_str = std::to_string(depth);
 builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
             vec_rows_.resize(nthreads);
-            static bool is_compleate_tree = true;
             if (depth == 0) {
-              is_compleate_tree = true;
+              is_compleate_tree_ = true;
             }
 
-            is_compleate_tree = is_compleate_tree * (1 << depth == qexpand_depth_wise_.size());
+            is_compleate_tree_ = is_compleate_tree_ * (1 << depth == qexpand_depth_wise_.size());
 
             threads_addr_.resize(nthreads);
 
@@ -1053,7 +1052,7 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
             if(depth > 0) {
             if(depth < max_depth) {
 
-              if (is_compleate_tree) {
+              if (is_compleate_tree_) {
                 #pragma omp parallel num_threads(nthreads)
                   {
                       size_t tid = omp_get_thread_num();
@@ -1124,17 +1123,17 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                 for(uint32_t i = 0; i < nthreads; ++i) {
                   summ_size1 += vec_rows_[i][0];
                 }
-static std::vector<std::vector<uint32_t>> threads_rows_nodes_wise(nthreads);
+threads_rows_nodes_wise_.resize(nthreads);
 const bool hist_fit_to_l2 = 1024*1024*0.8 > 16*gmat.cut.Ptrs().back();
 
-if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins || (depth > 2 && !hist_fit_to_l2) || (n_features == 61) && depth > 4) {
+if (n_features*summ_size1 / nthreads < (1 << (depth + 2))*n_bins || (depth > 2 && !hist_fit_to_l2) || (n_features == 61) && depth > 4) {
   threads_id_for_nodes_.resize(1 << max_depth);
-  //std::cout << "\n no reason to read sequentialy!: " << depth << ":" <<  n_features*summ_size1 / nthreads << std::endl;
+ // std::cout << "\n no reason to read sequentialy!: " << depth << ":" <<  n_features*summ_size1 / nthreads << std::endl;
   std::vector<std::vector<int>> nodes_count(nthreads);
   #pragma omp parallel num_threads(nthreads)
   {
     size_t tid = omp_get_thread_num();
-    threads_rows_nodes_wise[tid].resize(vec_rows_[tid][0],0);
+    threads_rows_nodes_wise_[tid].resize(vec_rows_[tid][0],0);
 
     nodes_count[tid].resize((1 << depth) + 1, 0);
     for(size_t i = 1; i < (1<<depth); ++i){
@@ -1145,9 +1144,9 @@ if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins || (depth > 2 &
       const uint32_t nod_id = nodes_ids[row_id];
       // CHECK_LT(nod_id, 1<<depth);
       // CHECK_LT(nodes_count[nod_id], vec_rows_[tid][0]);
-      threads_rows_nodes_wise[tid][nodes_count[tid][nod_id + 1]++] = row_id;
+      threads_rows_nodes_wise_[tid][nodes_count[tid][nod_id + 1]++] = row_id;
     }
-    std::copy(threads_rows_nodes_wise[tid].data(), threads_rows_nodes_wise[tid].data() + vec_rows_[tid][0], vec_rows_[tid].data()+1);
+    std::copy(threads_rows_nodes_wise_[tid].data(), threads_rows_nodes_wise_[tid].data() + vec_rows_[tid][0], vec_rows_[tid].data()+1);
   }
   // std::cout << depth << " - threads_nodes_count: " << std::endl;
 //   for (size_t i = 0; i < nthreads; ++i) {
@@ -1189,16 +1188,18 @@ if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins || (depth > 2 &
                     } else if (curr_thread_node_size > 0 && curr_thread_node_size <= curr_thread_size) {
 //                      std::cout << "2.1-curr_thread_size: " << curr_thread_size << std::endl;
                       const uint32_t begin = 1 + nodes_count[curr_thread_id%nthreads][node_id];
+                      CHECK_EQ(nodes_count[curr_thread_id%nthreads][node_id] + curr_thread_node_size,
+                               nodes_count[curr_thread_id%nthreads][node_id+1]);
 //                      std::cout << "begin: " << begin << std::endl;
                       threads_addr_[i].push_back({vec_rows_[curr_thread_id%nthreads].data(), begin,
                         begin + curr_thread_node_size});
                       //  std::cout << "node_id: " << node_id << " thr-i: " << i << " threads_id_for_nodes_.size()" << threads_id_for_nodes_.size() << " threads_id_for_nodes_[node_id].size():" << threads_id_for_nodes_[node_id].size() <<  std::endl;
                       if (threads_id_for_nodes_[node_id].size() != 0) {
-                        if (threads_id_for_nodes_[node_id].back() != i) {
-                          threads_id_for_nodes_[node_id].push_back(i);
-                        }
+                       if (threads_id_for_nodes_[node_id].back() != i) {
+                         threads_id_for_nodes_[node_id].push_back(i);
+                       }
                       } else {
-                        threads_id_for_nodes_[node_id].push_back(i);
+                       threads_id_for_nodes_[node_id].push_back(i);
                       }
                       threads_nodes_count[curr_thread_id%nthreads][node_id] = 0;
                       curr_thread_size -= curr_thread_node_size;
@@ -1207,14 +1208,17 @@ if (n_features*summ_size1 / nthreads < (1 << (depth - 1))*n_bins || (depth > 2 &
                       node_id = curr_thread_id / nthreads;
                     } else {
                       const uint32_t begin = 1 + nodes_count[curr_thread_id%nthreads][node_id];
+                      CHECK_EQ(nodes_count[curr_thread_id%nthreads][node_id] + curr_thread_node_size,
+                               nodes_count[curr_thread_id%nthreads][node_id+1]);
+
                       threads_addr_[i].push_back({vec_rows_[curr_thread_id%nthreads].data(), begin,
                         begin + curr_thread_size});
                       if (threads_id_for_nodes_[node_id].size() != 0) {
-                        if (threads_id_for_nodes_[node_id].back() != i) {
-                          threads_id_for_nodes_[node_id].push_back(i);
-                        }
+                       if (threads_id_for_nodes_[node_id].back() != i) {
+                         threads_id_for_nodes_[node_id].push_back(i);
+                       }
                       } else {
-                        threads_id_for_nodes_[node_id].push_back(i);
+                       threads_id_for_nodes_[node_id].push_back(i);
                       }
                       threads_nodes_count[curr_thread_id%nthreads][node_id] -= curr_thread_size;
                       nodes_count[curr_thread_id%nthreads][node_id] += curr_thread_size;
@@ -1304,13 +1308,15 @@ builder_monitor_.Stop("JustPartition!!!!!!" + depth_str);
 
 
 template<typename GradientSumT>
+template<bool is_distributed>
 void QuantileHistMaker::Builder<GradientSumT>::DenseSync(
     const GHistIndexMatrix &gmat,
     const GHistIndexBlockMatrix &gmatb,
     RegTree *p_tree,
     const std::vector<GradientPair> &gpair_h, int depth,
     std::vector<std::vector<GradientSumT>>* histograms, uint16_t* nodes_ids, std::vector<int32_t>* split_conditions,
-    std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr) {
+    std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr,
+    int starting_index, int sync_count) {
   const size_t n_bins = gmat.cut.Ptrs().back();
   const size_t n_features = gmat.cut.Ptrs().size() - 1;
   common::BlockedSpace2d& space = *space_ptr;
@@ -1343,6 +1349,12 @@ if(depth == 0) {
        (*histograms)[tid][bin_id] = 0;
      }
    }
+  if(is_distributed) {
+  GradientSumT* this_local = reinterpret_cast<GradientSumT*>(hist_local_worker_[nid].data());
+    for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+       this_local[bin_id] = dest_hist[bin_id];
+     }
+  }
   }
   //}
   builder_monitor_.Stop("BuildHistSync: depth0");
@@ -1450,12 +1462,18 @@ if (threads_id_for_nodes_.size() == 0) {
             (*histograms)[thread_id][nid_c*2*n_bins + bin_id] = 0;
           }
         }
+      } else /*if (is_distributed) */ {
+        const size_t first_thread_id = 0;
+        for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+          dest_hist[bin_id] = 0;
+          (*histograms)[first_thread_id][nid_c*2*n_bins + bin_id] = 0;
+        }
       }
     }
   }
 }
 threads_id_for_nodes_.clear();
-
+CHECK_EQ(threads_id_for_nodes_.size(), 0);
 // #pragma omp parallel num_threads(nthreads)
 //   {
 //       size_t tid = omp_get_thread_num();
@@ -1498,6 +1516,7 @@ threads_id_for_nodes_.clear();
 //   }
   builder_monitor_.Stop("BuildHistSync: depth " + depth_str);
   builder_monitor_.Start("Subtrick: depth " + depth_str);
+
 #pragma omp parallel num_threads(nthreads)
   {
       size_t tid = omp_get_thread_num();
@@ -1508,12 +1527,28 @@ threads_id_for_nodes_.clear();
         const int32_t small_nid = qexpand_depth_wise_[smallest[threads_work[tid][i].node_id]].nid;
         const int32_t largest_nid = qexpand_depth_wise_[smallest[threads_work[tid][i].node_id]].sibling_nid;
         const size_t parent_id = (*p_tree)[small_nid].Parent();
-
-        GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[largest_nid].data());
-        GradientSumT* parent_hist = reinterpret_cast< GradientSumT*>(hist_[parent_id].data());
-        GradientSumT* small_hist = reinterpret_cast< GradientSumT*>(hist_[small_nid].data());
-        for (size_t bin_id = begin; bin_id < end; ++bin_id) {
-          dest_hist[bin_id] = parent_hist[bin_id] - small_hist[bin_id];
+        if (largest_nid > -1) {
+          GradientSumT* dest_hist = reinterpret_cast< GradientSumT*>(hist_[largest_nid].data());
+          GradientSumT* parent_hist = nullptr;
+          if (is_distributed) {
+            parent_hist = reinterpret_cast< GradientSumT*>(hist_local_worker_[parent_id].data());
+          } else {
+            parent_hist = reinterpret_cast< GradientSumT*>(hist_[parent_id].data());
+          }
+          GradientSumT* small_hist = reinterpret_cast< GradientSumT*>(hist_[small_nid].data());
+          if (is_distributed) {
+            auto this_local = hist_local_worker_[small_nid];
+            auto this_hist = hist_[small_nid];
+            CopyHist(this_local, this_hist, threads_work[tid][i].b, threads_work[tid][i].e);
+          }
+          for (size_t bin_id = begin; bin_id < end; ++bin_id) {
+            dest_hist[bin_id] = parent_hist[bin_id] - small_hist[bin_id];
+          }
+          if (is_distributed) {
+            auto sibling_local = hist_local_worker_[largest_nid];
+            auto sibling_hist = hist_[largest_nid];
+            CopyHist(sibling_local, sibling_hist, threads_work[tid][i].b, threads_work[tid][i].e);
+          }
         }
       }
   }
@@ -1521,6 +1556,50 @@ threads_id_for_nodes_.clear();
 
 
 CHECK_EQ(smallest.size(), largest.size());
+CHECK_EQ(nodes_for_explicit_hist_build_.size(), 0);
+
+}
+if (is_distributed) {
+  builder_monitor_.Start("SyncHistogramsAllreduce");
+
+  histred_.Allreduce(hist_[starting_index].data(),
+                      hist_builder_.GetNumBins() * sync_count);
+
+  builder_monitor_.Stop("SyncHistogramsAllreduce");
+  common::BlockedSpace2d space1(nodes_for_explicit_hist_build_.size(), [&](size_t) {
+    return n_bins;
+  }, 1024);
+
+  //ParallelSubtractionHist(this, space1, nodes_for_explicit_hist_build_, p_tree);
+common::ParallelFor2d(space1, nthread_, [&](size_t node, common::Range1d r) {
+    const auto& entry = nodes_for_explicit_hist_build_[node];
+    if (!((*p_tree)[entry.nid].IsLeftChild())) {
+      auto this_hist = hist_[entry.nid];
+
+      if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
+        auto parent_hist = hist_[(*p_tree)[entry.nid].Parent()];
+        auto sibling_hist = hist_[entry.sibling_nid];
+        SubtractionHist(this_hist, parent_hist, sibling_hist, r.begin(), r.end());
+      }
+    }
+  });
+
+  common::BlockedSpace2d space2(nodes_for_subtraction_trick_.size(), [&](size_t) {
+    return n_bins;
+  }, 1024);
+//  ParallelSubtractionHist(this, space2, nodes_for_subtraction_trick_, p_tree);
+common::ParallelFor2d(space2, nthread_, [&](size_t node, common::Range1d r) {
+    const auto& entry = nodes_for_subtraction_trick_[node];
+    if (!((*p_tree)[entry.nid].IsLeftChild())) {
+      auto this_hist = hist_[entry.nid];
+
+      if (!(*p_tree)[entry.nid].IsRoot() && entry.sibling_nid > -1) {
+        auto parent_hist = hist_[(*p_tree)[entry.nid].Parent()];
+        auto sibling_hist = hist_[entry.sibling_nid];
+        SubtractionHist(this_hist, parent_hist, sibling_hist, r.begin(), r.end());
+      }
+    }
+  });
 }
 builder_monitor_.Stop("BuildHistSync!!");
 
@@ -2054,7 +2133,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWiseDense(
 
     uint64_t leafs_mask[128] = {};
 
-static uint64_t n_call = 0;
+uint64_t n_call = 0;
 ++n_call;
 //std::cout << "n_call: " << n_call << std::endl;
   // if(n_call == 94) {
@@ -2067,6 +2146,7 @@ static uint64_t n_call = 0;
   if (param_.subsample >= 1.0f) {
     CHECK_EQ(row_indices.size(), 0);
   }
+  //std::cout << "size_threads: " << size_threads << "\n";
   common::BlockedSpace2d space(1, [&](size_t node) {
      // return gmat.row_ptr.size() - 1;
      return size_threads;
@@ -2089,7 +2169,11 @@ if(depth > 0) {
   //  std::cout << "\n DensePartition finished" << std::endl;
     BuildLocalHistogramsDense<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
   //  std::cout << "\n BuildLocalHistogramsDense finished" << std::endl;
-    DenseSync(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+    if(rabit::IsDistributed()) {
+      DenseSync<true>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space, starting_index, sync_count);
+    } else {
+      DenseSync<false>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space, starting_index, sync_count);
+    }
  //   std::cout << "\n DenseSync finished" << std::endl;
     for(uint32_t i = 0; i < 128; ++i) {
       leafs_mask[i] = 0;
@@ -2101,7 +2185,11 @@ if(depth > 0) {
   //  std::cout << "\n 0DensePartition finished" << std::endl;
     BuildLocalHistogramsDense<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
   //  std::cout << "\n 0BuildLocalHistogramsDense finished" << std::endl;
-    DenseSync(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+    if(rabit::IsDistributed()) {
+      DenseSync<true>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space, starting_index, sync_count);
+    } else {
+      DenseSync<false>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space, starting_index, sync_count);
+    }
   //  std::cout << "\n 0DenseSync finished" << std::endl;
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
   //  std::cout << "\n 0BuildNodeStats finished" << std::endl;
@@ -2343,7 +2431,7 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
     return false;
   }
   builder_monitor_.Start("UpdatePredictionCache");
-static int n_call = 0;
+int n_call = 0;
 ++n_call;
   std::vector<bst_float>& out_preds = p_out_preds->HostVector();
 

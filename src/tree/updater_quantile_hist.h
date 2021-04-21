@@ -393,13 +393,15 @@ class QuantileHistMaker: public TreeUpdater {
                               std::vector<std::vector<GradientSumT>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
                               std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr,
                               const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr, int max_depth = 0, common::BlockedSpace2d* space = nullptr);
+    template <bool is_distributed>
     void DenseSync(const GHistIndexMatrix &gmat,
                               const GHistIndexBlockMatrix &gmatb,
                               RegTree *p_tree,
                               const std::vector<GradientPair> &gpair_h, int depth = 0,
                               std::vector<std::vector<GradientSumT>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
                               std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr,
-                              const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr, int max_depth = 0, common::BlockedSpace2d* space = nullptr);
+                              const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr, int max_depth = 0, common::BlockedSpace2d* space = nullptr,
+                              int starting_index = 0, int sync_count = 0);
 
     void BuildHistogramsLossGuide(
                         ExpandEntry entry,
@@ -497,6 +499,8 @@ class QuantileHistMaker: public TreeUpdater {
     std::vector<std::vector<GradientSumT>> histograms_;
     std::vector<std::vector<uint64_t>> offsets64_;
     std::vector<std::vector<uint16_t>> threads_id_for_nodes_;
+    std::vector<std::vector<uint32_t>> threads_rows_nodes_wise_;
+    bool is_compleate_tree_ = true;
     std::vector<uint16_t> node_ids_;
 //    std::vector<uint16_t> node_ids_global;
     // the temp space for split
