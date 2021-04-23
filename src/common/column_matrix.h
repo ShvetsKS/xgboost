@@ -146,8 +146,17 @@ class ColumnMatrix {
     }
 
     SetTypeSize(gmat.max_num_bins);
-
-    index_.resize(feature_offsets_[nfeature] * bins_type_size_, 0);
+    const size_t n_threads = omp_get_max_threads();
+    #pragma omp parallel num_threads(n_threads)
+    {
+      const size_t tid = omp_get_thread_num();
+      if (tid == 0) {
+        index_.resize(feature_offsets_[nfeature] * bins_type_size_, 0);
+      }
+      if (tid == (n_threads - 1)) {
+        index2_.resize(feature_offsets_[nfeature] * bins_type_size_, 0);
+      }
+    }
     if (!all_dense) {
       row_ind_.resize(feature_offsets_[nfeature]);
     }
@@ -230,6 +239,7 @@ class ColumnMatrix {
     /* missing values make sense only for column with type kDenseColumn,
        and if no missing values were observed it could be handled much faster. */
     if (noMissingValues) {
+      T* local_index2 = reinterpret_cast<T*>(&index2_[0]);
       ParallelFor(omp_ulong(nrow), [&](omp_ulong rid) {
         const size_t ibegin = rid*nfeature;
         const size_t iend = (rid+1)*nfeature;
@@ -237,6 +247,7 @@ class ColumnMatrix {
         for (size_t i = ibegin; i < iend; ++i, ++j) {
             const size_t idx = feature_offsets_[j];
             local_index[idx + rid] = index[i];
+            local_index2[idx + rid] = local_index[idx + rid];
         }
       });
     } else {
@@ -328,8 +339,12 @@ class ColumnMatrix {
   const uint8_t* GetIndexData() const {
     return index_.data();
   }
+  const uint8_t* GetIndex2Data() const {
+    return index2_.data();
+  }
  private:
   std::vector<uint8_t> index_;
+  std::vector<uint8_t> index2_;
 
   std::vector<size_t> feature_counts_;
   std::vector<ColumnType> type_;

@@ -399,6 +399,10 @@ constexpr size_t Prefetch1::kNoPrefetchSize;
     asm("vaddpd %xmm2, %xmm1, %xmm3;");                                                             \
     asm("vmovapd %%xmm3, (%0);" : : "r" ( offset##IDX ) : /*"%xmm3"*/);                 \
 
+#define VECTOR_UNR2(IDX, J)                                                                                 \
+    double* offset##IDX = (double*)(offsets64[IDX + 13*J] + ((size_t)(gr_index_local[IDX + 13*J])) * 16); \
+    _mm_store_pd((offset##IDX), _mm_add_pd(_mm_load_pd((offset##IDX)), dpgh));
+
 template<typename BinIdxType, bool no_sampling, bool read_by_column>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
                           const size_t row_indices_begin,
@@ -451,27 +455,26 @@ if(read_by_column) {
     nodes_ids[i] = 0;
     const size_t icol_start = i * n_features;
     const size_t idx_gh = two *i;
-    const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
-    asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+    __m128d dpgh = _mm_set_pd(pgh[idx_gh + 1], pgh[idx_gh]);
 
     const BinIdxType* gr_index_local = gradient_index + icol_start;
     for (size_t ib = 0; ib < nb; ++ib) {
-      VECTOR_UNR(0, ib);
-      VECTOR_UNR(1, ib);
-      VECTOR_UNR(2, ib);
-      VECTOR_UNR(3, ib);
-      VECTOR_UNR(4, ib);
-      VECTOR_UNR(5, ib);
-      VECTOR_UNR(6, ib);
-      VECTOR_UNR(7, ib);
-      VECTOR_UNR(8, ib);
-      VECTOR_UNR(9, ib);
-      VECTOR_UNR(10, ib);
-      VECTOR_UNR(11, ib);
-      VECTOR_UNR(12, ib);
+      VECTOR_UNR2(0, ib);
+      VECTOR_UNR2(1, ib);
+      VECTOR_UNR2(2, ib);
+      VECTOR_UNR2(3, ib);
+      VECTOR_UNR2(4, ib);
+      VECTOR_UNR2(5, ib);
+      VECTOR_UNR2(6, ib);
+      VECTOR_UNR2(7, ib);
+      VECTOR_UNR2(8, ib);
+      VECTOR_UNR2(9, ib);
+      VECTOR_UNR2(10, ib);
+      VECTOR_UNR2(11, ib);
+      VECTOR_UNR2(12, ib);
     }
     for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
-        VECTOR_UNR(jb,0);
+        VECTOR_UNR2(jb,0);
     }
   }
 }
@@ -653,7 +656,7 @@ void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
                           std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, uint64_t* mask,
                           uint64_t* leafs_mask, std::vector<int>* prev_level_nodes, uint32_t* nodes_count, const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
-  const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
+  const BinIdxType* columnar_data = numa;//reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
   const uint32_t* offsets = gmat.index.Offset();
 
   for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
@@ -668,8 +671,8 @@ void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
       continue;
     }
     const int32_t sc = (*split_conditions)[nid + 1];
-    const bst_uint si = (*split_ind)[nid + 1];
-    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    //const bst_uint si = (*split_ind)[nid + 1];
+    const int32_t cmp_value = (int32_t)(columnar_data[(*split_ind)[nid + 1] + i]);// + (int32_t)(offsets[si]));
 
     nodes_ids[i] = 2*nid + !(cmp_value <= sc);
     if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask+nodes_ids[i]/64)) {
@@ -690,7 +693,7 @@ void JustPartitionLastLayerColumn(const size_t row_indices_begin,
                           std::vector<int>* curr_level_nodes, uint64_t* leafs_mask, std::vector<int>* prev_level_nodes,
                           const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
-  const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
+  const BinIdxType* columnar_data = numa;//reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
   const uint32_t* offsets = gmat.index.Offset();
   for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
     const uint32_t i = no_sampling ? ii : row_indices_ptr[ii];
@@ -704,9 +707,9 @@ void JustPartitionLastLayerColumn(const size_t row_indices_begin,
       continue;
     }
     const int32_t sc = (*split_conditions)[nid + 1];
-    const bst_uint si = (*split_ind)[nid + 1];
+    //const bst_uint si = (*split_ind)[nid + 1];
     nodes_ids[i] = (uint16_t)(1) << 15;
-    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    const int32_t cmp_value = (int32_t)(columnar_data[(*split_ind)[nid + 1] + i]);// + (int32_t)(offsets[si]));
     nodes_ids[i] |= (uint16_t)((*curr_level_nodes)[2*nid + !(cmp_value <= sc)]);
   }
 }
@@ -723,23 +726,22 @@ void JustPartitionColumnar(const size_t row_indices_begin,
                           const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
   const uint32_t* offsets = gmat.index.Offset();
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
-  const BinIdxType* columnar_data = reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
-
+  const BinIdxType* columnar_data = numa;//reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
+  const size_t row_size = row_indices_end - row_indices_begin;
+  //const size_t size_with_prefetch = row_size > Prefetch1::kPrefetchOffset ? row_size - Prefetch1::kPrefetchOffset : 0;
   for (size_t ii = row_indices_begin; ii < row_indices_end; ++ii) {
     const uint32_t i = no_sampling ? ii : row_indices_ptr[ii];
     const uint32_t nid = nodes_ids[i];
     const int32_t sc = (*split_conditions)[nid + 1];
-    const bst_uint si = (*split_ind)[nid + 1];
-    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    //PREFETCH_READ_T0(columnar_data + (*split_ind)[nodes_ids[i + Prefetch1::kPrefetchOffset] + 1] + i + Prefetch1::kPrefetchOffset);
+    const int32_t cmp_value = (int32_t)(columnar_data[(*split_ind)[nid + 1] + i]);// + (int32_t)(offsets[si]));
     nodes_ids[i] = 2*nid + !(cmp_value <= sc);
     if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask + nodes_ids[i]/64)) {
       rows[++count] = i;
       ++nodes_count[nodes_ids[i]];
     }
   }
-
 }
-
 
 template<bool do_prefetch, typename BinIdxType, int depth0, bool read_by_column, bool feature_blocking>
 void BuildHistKernel(const std::vector<GradientPair>& gpair,
@@ -858,26 +860,26 @@ if (read_by_column) {
       }
 
       const uint64_t* offsets64 = offsets640 + nid*n_features;
-      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
-      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
-      double* hist_data = hist_data0 + nid*n_bins*2;
+      // const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      // asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+      __m128d dpgh = _mm_set_pd(pgh[idx_gh + 1], pgh[idx_gh]);
       for (size_t ib = 0; ib < nb; ++ib) {
-        VECTOR_UNR(0, ib);
-        VECTOR_UNR(1, ib);
-        VECTOR_UNR(2, ib);
-        VECTOR_UNR(3, ib);
-        VECTOR_UNR(4, ib);
-        VECTOR_UNR(5, ib);
-        VECTOR_UNR(6, ib);
-        VECTOR_UNR(7, ib);
-        VECTOR_UNR(8, ib);
-        VECTOR_UNR(9, ib);
-        VECTOR_UNR(10, ib);
-        VECTOR_UNR(11, ib);
-        VECTOR_UNR(12, ib);
+        VECTOR_UNR2(0, ib);
+        VECTOR_UNR2(1, ib);
+        VECTOR_UNR2(2, ib);
+        VECTOR_UNR2(3, ib);
+        VECTOR_UNR2(4, ib);
+        VECTOR_UNR2(5, ib);
+        VECTOR_UNR2(6, ib);
+        VECTOR_UNR2(7, ib);
+        VECTOR_UNR2(8, ib);
+        VECTOR_UNR2(9, ib);
+        VECTOR_UNR2(10, ib);
+        VECTOR_UNR2(11, ib);
+        VECTOR_UNR2(12, ib);
       }
       for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
-          VECTOR_UNR(jb,0);
+          VECTOR_UNR2(jb,0);
       }
     }
 
@@ -890,27 +892,28 @@ if (read_by_column) {
       const size_t icol_start_prefetch = rows[ri + Prefetch1::kPrefetchOffset] * n_features;
 
       const uint64_t* offsets64 = offsets640 + nid*n_features;
-      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
-      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+      // const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      // asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+      __m128d dpgh = _mm_set_pd(pgh[idx_gh + 1], pgh[idx_gh]);
 
       double* hist_data = hist_data0 + nid*n_bins*2;
       for (size_t ib = 0; ib < nb; ++ib) {
-        VECTOR_UNR(0, ib);
-        VECTOR_UNR(1, ib);
-        VECTOR_UNR(2, ib);
-        VECTOR_UNR(3, ib);
-        VECTOR_UNR(4, ib);
-        VECTOR_UNR(5, ib);
-        VECTOR_UNR(6, ib);
-        VECTOR_UNR(7, ib);
-        VECTOR_UNR(8, ib);
-        VECTOR_UNR(9, ib);
-        VECTOR_UNR(10, ib);
-        VECTOR_UNR(11, ib);
-        VECTOR_UNR(12, ib);
+        VECTOR_UNR2(0, ib);
+        VECTOR_UNR2(1, ib);
+        VECTOR_UNR2(2, ib);
+        VECTOR_UNR2(3, ib);
+        VECTOR_UNR2(4, ib);
+        VECTOR_UNR2(5, ib);
+        VECTOR_UNR2(6, ib);
+        VECTOR_UNR2(7, ib);
+        VECTOR_UNR2(8, ib);
+        VECTOR_UNR2(9, ib);
+        VECTOR_UNR2(10, ib);
+        VECTOR_UNR2(11, ib);
+        VECTOR_UNR2(12, ib);
       }
       for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
-          VECTOR_UNR(jb,0);
+          VECTOR_UNR2(jb,0);
       }
     }
   }
@@ -1056,7 +1059,7 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                   {
                       size_t tid = omp_get_thread_num();
                       threads_nodes_count[tid].resize(1 << depth, 0);
-                      const BinIdxType* numa = tid < nthreads/2 ? gmat.index.data<BinIdxType>() :  gmat.index.data2<BinIdxType>();
+                      const BinIdxType* numa = tid < nthreads/2 ? reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData()) :  reinterpret_cast<const BinIdxType*>(column_matrix->GetIndex2Data());
                       size_t chunck_size =
                           num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
 
@@ -1088,7 +1091,7 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                   {
                       size_t tid = omp_get_thread_num();
                       threads_nodes_count[tid].resize(1 << depth, 0);
-                      const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+                      const BinIdxType* numa = tid < nthreads/2 ? reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData()) :  reinterpret_cast<const BinIdxType*>(column_matrix->GetIndex2Data());
                       size_t chunck_size =
                           num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
 
@@ -1269,7 +1272,7 @@ if (n_features*summ_size1 / nthreads < (1 << (depth + 2))*n_bins || (depth > 2 &
                 #pragma omp parallel num_threads(nthreads)
                   {
                       size_t tid = omp_get_thread_num();
-                      const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
+                      const BinIdxType* numa = tid < nthreads/2 ? reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData()) :  reinterpret_cast<const BinIdxType*>(column_matrix->GetIndex2Data());
                       size_t chunck_size =
                           num_blocks_in_space / nthreads + !!(num_blocks_in_space % nthreads);
 
@@ -1778,6 +1781,67 @@ if(!hist_fit_to_l2) {
           const BinIdxType* numa = tid < nthreads/2 ?  gmat.index.data<BinIdxType>() : gmat.index.data2<BinIdxType>();
           std::vector<AddrBeginEnd>& local_thread_addr = threads_addr_[tid];
           GHistRow<GradientSumT> local_hist(reinterpret_cast<xgboost::detail::GradientPairInternal<GradientSumT>*>((*histograms)[tid].data()), n_bins);
+          // switch(depth) {
+          //   case 1:
+          // for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+          //     const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+          //     const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+          //     BuildHistKernel<false, BinIdxType, 1, false, false>(gpair_h, rows, size_r, gmat, n_features,
+          //                                                   local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+          // }
+          //   break;
+          //   case 2:
+          // for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+          //     const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+          //     const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+          //     BuildHistKernel<false, BinIdxType, 2, false, false>(gpair_h, rows, size_r, gmat, n_features,
+          //                                                   local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+          // }
+          //   break;
+          //   case 3:
+          // for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+          //     const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+          //     const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+          //     BuildHistKernel<false, BinIdxType, 3, false, false>(gpair_h, rows, size_r, gmat, n_features,
+          //                                                   local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+          // }
+          //   break;
+          //   case 4:
+          // for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+          //     const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+          //     const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+          //     BuildHistKernel<false, BinIdxType, 4, false, false>(gpair_h, rows, size_r, gmat, n_features,
+          //                                                   local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+          // }
+          //   break;
+          //   case 5:
+          // for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+          //     const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+          //     const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+          //     BuildHistKernel<false, BinIdxType, 5, false, false>(gpair_h, rows, size_r, gmat, n_features,
+          //                                                   local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+          // }
+          //   break;
+          //   case 6:
+          // for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+          //     const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+          //     const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+          //     BuildHistKernel<false, BinIdxType, 6, false, false>(gpair_h, rows, size_r, gmat, n_features,
+          //                                                   local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+          // }
+          //   break;
+          //   case 7:
+          // for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
+          //     const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
+          //     const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
+          //     BuildHistKernel<false, BinIdxType, 7, false, false>(gpair_h, rows, size_r, gmat, n_features,
+          //                                                   local_hist, numa, nodes_ids, 1 << depth, offsets64_[tid].data(), column_matrix, 0);
+          // }
+          //   break;
+          //   default:
+          //   CHECK_EQ(0,1);
+          //   break;
+          // }
           for(uint32_t block_id = 0; block_id < local_thread_addr.size(); ++block_id) {
               const uint32_t* rows = local_thread_addr[block_id].addr + local_thread_addr[block_id].b;
               const uint32_t size_r = local_thread_addr[block_id].e - local_thread_addr[block_id].b;
@@ -3175,6 +3239,9 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
   std::string timer_name = "Partition:";
   timer_name += std::to_string(depth);
   builder_monitor_.Start("ApplySplit");
+  const uint32_t* offsets = gmat.index.Offset();
+  const uint32_t rows_offset = gmat.row_ptr.size() - 1;
+
   // 1. Find split condition for each split
   const size_t n_nodes = nodes.size();
   FindSplitConditions(nodes, *p_tree, gmat, split_conditions, compleate_splits);
@@ -3183,7 +3250,9 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
   for (size_t i = 0; i < n_nodes; ++i) {
       const int32_t nid = nodes[i].nid;
       const bst_uint fid = (*p_tree)[nid].SplitIndex();
-      (*split_ind)[(*compleate_splits)[i] + 1] = fid;
+      // TODO extend type for split_ind as it should be more than 32bit
+      (*split_ind)[(*compleate_splits)[i] + 1] = fid*rows_offset;
+      (*split_conditions)[(*compleate_splits)[i] + 1] = (*split_conditions)[(*compleate_splits)[i] + 1] - offsets[fid];
   }
 
   builder_monitor_.Stop("ApplySplit");
