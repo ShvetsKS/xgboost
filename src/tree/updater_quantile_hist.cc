@@ -44,6 +44,115 @@
   #define PREFETCH_READ_T0(addr) do {} while (0)
 #endif  // defined(XGBOOST_MM_PREFETCH_PRESENT)
 
+    template <uint64_t A, uint64_t C, uint64_t M> class lc_engine
+    {
+#pragma region Typedefs/Constants
+        public: using result_type = uint64_t;
+
+        public: static constexpr result_type multiplier   = A;
+        public: static constexpr result_type increment    = C;
+        public: static constexpr result_type modulus      = M;
+
+        public: static constexpr result_type mask         = M - 1ULL;
+
+        public: static constexpr result_type default_seed = 1ULL;
+#pragma endregion
+
+#pragma region Data
+        private: result_type _seed;
+#pragma endregion
+
+#pragma region Ctor/Dtor/op=
+        public: explicit lc_engine(result_type seed = default_seed):
+            _seed{seed}
+        {
+        }
+
+        public: lc_engine(const lc_engine& r) = default;
+        public: lc_engine(lc_engine&& r)      = default;
+
+        public: lc_engine& operator=(const lc_engine& r) = default;
+        public: lc_engine& operator=(lc_engine&& r)      = default;
+
+        public: ~lc_engine()
+        {
+        }
+#pragma endregion
+
+#pragma region Observers
+        public: result_type get_seed() const
+        {
+            return _seed;
+        }
+#pragma endregion
+
+#pragma region Helpers
+        public: static constexpr result_type min()
+        {
+            return result_type{C == 0u};
+        }
+
+        public: static constexpr result_type max()
+        {
+            return mask;
+        }
+
+        // could skip forward as well as backward
+        public: static result_type skip(result_type ns, result_type seed)
+        {
+            int64_t nskip = ns & mask;
+
+            // The algorithm here to determine the parameters used to skip ahead is
+            // described in the paper F. Brown, "Random Number Generation with Arbitrary Stride,"
+            // Trans. Am. Nucl. Soc. (Nov. 1994). This algorithm is able to skip ahead in
+            // O(log2(N)) operations instead of O(N). It computes parameters
+            // M and C which can then be used to find x_N = M*x_0 + C mod 2^M.
+
+            // initialize constants
+            result_type m = multiplier; // original multiplicative constant
+            result_type c = increment;  // original additive constant
+
+            result_type m_next = 1ULL; // new effective multiplicative constant
+            result_type c_next = 0ULL; // new effective additive constant
+
+            while (nskip > 0LL)
+            {
+                if (nskip & 1LL) // check least significant bit for being 1
+                {
+                    m_next = (m_next * m) & mask;
+                    c_next = (c_next * m + c) & mask;
+                }
+
+                c = ((m + 1ULL) * c) & mask;
+                m = (m * m) & mask;
+
+                nskip = nskip >> 1LL; // shift right, dropping least significant bit
+            }
+
+            // with M and C, we can now find the new seed
+            return (m_next * seed + c_next) & mask;
+        }
+#pragma endregion
+
+#pragma region Mutators
+        public: void seed(result_type s = default_seed)
+        {
+            _seed = s;
+        }
+
+        public: result_type operator()()
+        {
+            return (_seed = (multiplier * _seed + increment) & mask);
+        }
+
+        public: void discard(unsigned long long ns)
+        {
+            _seed = skip(ns, _seed);
+        }
+#pragma endregion
+    };
+
+
 namespace xgboost {
 namespace tree {
 
@@ -455,26 +564,29 @@ if(read_by_column) {
     nodes_ids[i] = 0;
     const size_t icol_start = i * n_features;
     const size_t idx_gh = two *i;
-    __m128d dpgh = _mm_set_pd(pgh[idx_gh + 1], pgh[idx_gh]);
+    const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+    asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+    // const uint64_t* offsets64 = offsets640 + nid*n_features;
+    // __m128d dpgh = _mm_set_pd(pgh[idx_gh + 1], pgh[idx_gh]);
 
     const BinIdxType* gr_index_local = gradient_index + icol_start;
     for (size_t ib = 0; ib < nb; ++ib) {
-      VECTOR_UNR2(0, ib);
-      VECTOR_UNR2(1, ib);
-      VECTOR_UNR2(2, ib);
-      VECTOR_UNR2(3, ib);
-      VECTOR_UNR2(4, ib);
-      VECTOR_UNR2(5, ib);
-      VECTOR_UNR2(6, ib);
-      VECTOR_UNR2(7, ib);
-      VECTOR_UNR2(8, ib);
-      VECTOR_UNR2(9, ib);
-      VECTOR_UNR2(10, ib);
-      VECTOR_UNR2(11, ib);
-      VECTOR_UNR2(12, ib);
+      VECTOR_UNR(0, ib);
+      VECTOR_UNR(1, ib);
+      VECTOR_UNR(2, ib);
+      VECTOR_UNR(3, ib);
+      VECTOR_UNR(4, ib);
+      VECTOR_UNR(5, ib);
+      VECTOR_UNR(6, ib);
+      VECTOR_UNR(7, ib);
+      VECTOR_UNR(8, ib);
+      VECTOR_UNR(9, ib);
+      VECTOR_UNR(10, ib);
+      VECTOR_UNR(11, ib);
+      VECTOR_UNR(12, ib);
     }
     for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
-        VECTOR_UNR2(jb,0);
+        VECTOR_UNR(jb,0);
     }
   }
 }
@@ -654,7 +766,8 @@ void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
                           const size_t n_features,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
                           std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, uint64_t* mask,
-                          uint64_t* leafs_mask, std::vector<int>* prev_level_nodes, uint32_t* nodes_count, const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
+                          uint64_t* leafs_mask, std::vector<int>* prev_level_nodes, uint32_t* nodes_count, const ColumnMatrix *column_matrix, const size_t* row_indices_ptr, const std::vector<GradientPair> &gpair_h) {
+  const float* pgh = reinterpret_cast<const float*>(gpair_h.data());
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
   const BinIdxType* columnar_data = numa;//reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
   const uint32_t* offsets = gmat.index.Offset();
@@ -675,7 +788,7 @@ void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
     const int32_t cmp_value = (int32_t)(columnar_data[(*split_ind)[nid + 1] + i]);// + (int32_t)(offsets[si]));
 
     nodes_ids[i] = 2*nid + !(cmp_value <= sc);
-    if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask+nodes_ids[i]/64)) {
+    if ((((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask+nodes_ids[i]/64)) && (pgh[i*2] != 0 && pgh[i*2 + 1] != 0)) {
       rows[++count] = i;
       ++nodes_count[nodes_ids[i]];
     }
@@ -691,7 +804,8 @@ void JustPartitionLastLayerColumn(const size_t row_indices_begin,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
                           std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
                           std::vector<int>* curr_level_nodes, uint64_t* leafs_mask, std::vector<int>* prev_level_nodes,
-                          const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
+                          const ColumnMatrix *column_matrix, const size_t* row_indices_ptr, const std::vector<GradientPair> &gpair_h) {
+  const float* pgh = reinterpret_cast<const float*>(gpair_h.data());
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
   const BinIdxType* columnar_data = numa;//reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
   const uint32_t* offsets = gmat.index.Offset();
@@ -723,7 +837,9 @@ void JustPartitionColumnar(const size_t row_indices_begin,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
                           std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
                           uint64_t* mask, uint32_t* nodes_count,
-                          const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
+                          const ColumnMatrix *column_matrix, const size_t* row_indices_ptr, const std::vector<GradientPair> &gpair_h) {
+  const float* pgh = reinterpret_cast<const float*>(gpair_h.data());
+
   const uint32_t* offsets = gmat.index.Offset();
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
   const BinIdxType* columnar_data = numa;//reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
@@ -736,7 +852,7 @@ void JustPartitionColumnar(const size_t row_indices_begin,
     //PREFETCH_READ_T0(columnar_data + (*split_ind)[nodes_ids[i + Prefetch1::kPrefetchOffset] + 1] + i + Prefetch1::kPrefetchOffset);
     const int32_t cmp_value = (int32_t)(columnar_data[(*split_ind)[nid + 1] + i]);// + (int32_t)(offsets[si]));
     nodes_ids[i] = 2*nid + !(cmp_value <= sc);
-    if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask + nodes_ids[i]/64)) {
+    if ((((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask + nodes_ids[i]/64)) && (pgh[i*2] != 0 && pgh[i*2 + 1] != 0)) {
       rows[++count] = i;
       ++nodes_count[nodes_ids[i]];
     }
@@ -859,27 +975,30 @@ if (read_by_column) {
         PREFETCH_READ_T0(gradient_index + j);
       }
 
+      // const uint64_t* offsets64 = offsets640 + nid*n_features;
+      // __m128d dpgh = _mm_set_pd(pgh[idx_gh + 1], pgh[idx_gh]);
       const uint64_t* offsets64 = offsets640 + nid*n_features;
-      // const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
-      // asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
-      __m128d dpgh = _mm_set_pd(pgh[idx_gh + 1], pgh[idx_gh]);
+      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
+
+      double* hist_data = hist_data0 + nid*n_bins*2;
       for (size_t ib = 0; ib < nb; ++ib) {
-        VECTOR_UNR2(0, ib);
-        VECTOR_UNR2(1, ib);
-        VECTOR_UNR2(2, ib);
-        VECTOR_UNR2(3, ib);
-        VECTOR_UNR2(4, ib);
-        VECTOR_UNR2(5, ib);
-        VECTOR_UNR2(6, ib);
-        VECTOR_UNR2(7, ib);
-        VECTOR_UNR2(8, ib);
-        VECTOR_UNR2(9, ib);
-        VECTOR_UNR2(10, ib);
-        VECTOR_UNR2(11, ib);
-        VECTOR_UNR2(12, ib);
+        VECTOR_UNR(0, ib);
+        VECTOR_UNR(1, ib);
+        VECTOR_UNR(2, ib);
+        VECTOR_UNR(3, ib);
+        VECTOR_UNR(4, ib);
+        VECTOR_UNR(5, ib);
+        VECTOR_UNR(6, ib);
+        VECTOR_UNR(7, ib);
+        VECTOR_UNR(8, ib);
+        VECTOR_UNR(9, ib);
+        VECTOR_UNR(10, ib);
+        VECTOR_UNR(11, ib);
+        VECTOR_UNR(12, ib);
       }
       for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
-          VECTOR_UNR2(jb,0);
+          VECTOR_UNR(jb,0);
       }
     }
 
@@ -891,29 +1010,31 @@ if (read_by_column) {
       const uint32_t nid = nodes_ids[i];
       const size_t icol_start_prefetch = rows[ri + Prefetch1::kPrefetchOffset] * n_features;
 
+      // const uint64_t* offsets64 = offsets640 + nid*n_features;
+      // __m128d dpgh = _mm_set_pd(pgh[idx_gh + 1], pgh[idx_gh]);
+
       const uint64_t* offsets64 = offsets640 + nid*n_features;
-      // const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
-      // asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
-      __m128d dpgh = _mm_set_pd(pgh[idx_gh + 1], pgh[idx_gh]);
+      const double dpgh[] = {pgh[idx_gh], pgh[idx_gh + 1]};
+      asm("vmovapd (%0), %%xmm2;" : : "r" ( dpgh ) : );
 
       double* hist_data = hist_data0 + nid*n_bins*2;
       for (size_t ib = 0; ib < nb; ++ib) {
-        VECTOR_UNR2(0, ib);
-        VECTOR_UNR2(1, ib);
-        VECTOR_UNR2(2, ib);
-        VECTOR_UNR2(3, ib);
-        VECTOR_UNR2(4, ib);
-        VECTOR_UNR2(5, ib);
-        VECTOR_UNR2(6, ib);
-        VECTOR_UNR2(7, ib);
-        VECTOR_UNR2(8, ib);
-        VECTOR_UNR2(9, ib);
-        VECTOR_UNR2(10, ib);
-        VECTOR_UNR2(11, ib);
-        VECTOR_UNR2(12, ib);
+        VECTOR_UNR(0, ib);
+        VECTOR_UNR(1, ib);
+        VECTOR_UNR(2, ib);
+        VECTOR_UNR(3, ib);
+        VECTOR_UNR(4, ib);
+        VECTOR_UNR(5, ib);
+        VECTOR_UNR(6, ib);
+        VECTOR_UNR(7, ib);
+        VECTOR_UNR(8, ib);
+        VECTOR_UNR(9, ib);
+        VECTOR_UNR(10, ib);
+        VECTOR_UNR(11, ib);
+        VECTOR_UNR(12, ib);
       }
       for(size_t jb = n_features - tail_size;  jb < n_features; ++jb) {
-          VECTOR_UNR2(jb,0);
+          VECTOR_UNR(jb,0);
       }
     }
   }
@@ -1074,14 +1195,14 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                         common::Range1d r = space.GetRange(i);
                         JustPartitionColumnar<BinIdxType, true>(r.begin(), r.end(), gmat, n_features,
                                       nullptr, vec_rows_[tid].data(), count, numa,
-                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);//, column_matrix);
+                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr, gpair_h);//, column_matrix);
                       }
                     } else {
                       for (auto i = begin; i < end; i++) {
                         common::Range1d r = space.GetRange(i);
                         JustPartitionColumnar<BinIdxType, false>(r.begin(), r.end(), gmat, n_features,
                                       nullptr, vec_rows_[tid].data(), count, numa,
-                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);//, column_matrix);
+                                      nodes_ids, split_conditions, split_ind, mask, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr, gpair_h);//, column_matrix);
                       }
                     }
                       vec_rows_[tid][0] = count;
@@ -1106,14 +1227,14 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
                           common::Range1d r = space.GetRange(i);
                           JustPartitionWithLeafsMaskColumn<BinIdxType, true>(r.begin(), r.end(), gmat, n_features,
                                         nullptr, vec_rows_[tid].data(), count, numa,
-                                        nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);
+                                        nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr, gpair_h);
                         }
                       } else {
                         for (auto i = begin; i < end; i++) {
                           common::Range1d r = space.GetRange(i);
                           JustPartitionWithLeafsMaskColumn<BinIdxType, false>(r.begin(), r.end(), gmat, n_features,
                                         nullptr, vec_rows_[tid].data(), count, numa,
-                                        nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr);
+                                        nodes_ids, split_conditions, split_ind, mask, leaf_mask, &prev_level_nodes_, threads_nodes_count[tid].data(), column_matrix, row_indices_ptr, gpair_h);
                         }
                       }
                       //std::cout << "count: " << count << std::endl;
@@ -1287,14 +1408,14 @@ if (n_features*summ_size1 / nthreads < (1 << (depth + 2))*n_bins || (depth > 2 &
                           common::Range1d r = space.GetRange(i);
                           JustPartitionLastLayerColumn<BinIdxType, true>(r.begin(), r.end(), gmat, n_features,
                                         nullptr, vec_rows_[tid].data(), count, numa,
-                                        nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix, row_indices_ptr);
+                                        nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix, row_indices_ptr, gpair_h);
                         }
                       } else {
                         for (auto i = begin; i < end; i++) {
                           common::Range1d r = space.GetRange(i);
                           JustPartitionLastLayerColumn<BinIdxType, false>(r.begin(), r.end(), gmat, n_features,
                                         nullptr, vec_rows_[tid].data(), count, numa,
-                                        nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix, row_indices_ptr);
+                                        nodes_ids, split_conditions, split_ind, &curr_level_nodes, leaf_mask, &prev_level_nodes_, column_matrix, row_indices_ptr, gpair_h);
                         }
                       }
                       vec_rows_[tid][0] = count;
@@ -2502,7 +2623,7 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
   std::vector<size_t>& row_indices = *row_set_collection_.Data();
 
   if (row_indices.size() == 0) {
-    CHECK_GE(param_.subsample, 1);
+    //CHECK_GE(param_.subsample, 1);
     common::BlockedSpace2d space(1, [&](size_t node) {
       return node_ids_.size();
     }, 1024);
@@ -2581,6 +2702,8 @@ void QuantileHistMaker::Builder<GradientSumT>::InitSampling(const std::vector<Gr
   unused_rows_.resize(info.num_row_);
   size_t* p_row_indices_used = row_indices->data();
   size_t* p_row_indices_unused = unused_rows_.data();
+  std::vector<GradientPair>& gpair_ref = const_cast<std::vector<GradientPair>&>(gpair);
+
 #if XGBOOST_CUSTOMIZE_GLOBAL_PRNG
   std::bernoulli_distribution coin_flip(param_.subsample);
   size_t used = 0, unused = 0;
@@ -2599,14 +2722,20 @@ void QuantileHistMaker::Builder<GradientSumT>::InitSampling(const std::vector<Gr
   std::vector<size_t> row_offsets_used(nthread, 0);
   std::vector<size_t> row_offsets_unused(nthread, 0);
   /* usage of mt19937_64 give 2x speed up for subsampling */
-  std::vector<std::mt19937> rnds(nthread);
-  /* create engine for each thread */
-  for (std::mt19937& r : rnds) {
-    r = rnd;
+  //size_t initial_seed = rnd();
+  std::vector<size_t> initial_seed(nthread);// = rnd();
+  for (size_t i = 0; i < nthread; ++i) {
+    initial_seed[i] = rnd();
   }
+  // std::vector<std::mt19937> rnds(nthread);
+  // /* create engine for each thread */
+  // for (std::mt19937& r : rnds) {
+  //   r = rnd;
+  // }
   const size_t discard_size = info.num_row_ / nthread;
-  auto upper_border = static_cast<float>(std::numeric_limits<uint32_t>::max());
+  auto upper_border = lc_engine<16807, 0, 2147483647>::max();//static_cast<float>(std::numeric_limits<uint32_t>::max());
   uint32_t coin_flip_border = static_cast<uint32_t>(upper_border * param_.subsample);
+  std::bernoulli_distribution coin_flip(param_.subsample);
   dmlc::OMPException exc;
   #pragma omp parallel num_threads(nthread)
   {
@@ -2615,52 +2744,21 @@ void QuantileHistMaker::Builder<GradientSumT>::InitSampling(const std::vector<Gr
       const size_t ibegin = tid * discard_size;
       const size_t iend = (tid == (nthread - 1)) ?
                           info.num_row_ : ibegin + discard_size;
-
-      rnds[tid].discard(discard_size * tid);
+      // lc_engine<16807, 0, 2147483647> def_rnd(initial_seed);
+      // def_rnd.discard(discard_size * tid);
+      std::default_random_engine eng(initial_seed[tid]);
+      //rnds[tid].discard(discard_size * tid);
       for (size_t i = ibegin; i < iend; ++i) {
-        if (gpair[i].GetHess() >= 0.0f && rnds[tid]() < coin_flip_border) {
-          p_row_indices_used[ibegin + row_offsets_used[tid]++] = i;
-        } else {
-          p_row_indices_unused[ibegin + row_offsets_unused[tid]++] = i;
+        if (!(gpair[i].GetHess() >= 0.0f && coin_flip(eng))) {
+          gpair_ref[i] = GradientPair(0);//gpair_ref[i];
+          //std::cout << "\nGOOD EPTA!\n";
         }
-      }
-
-      #pragma omp barrier
-
-      if (tid == 0ul) {
-        size_t prefix_sum_used = row_offsets_used[0];
-        for (size_t i = 1; i < nthread; ++i) {
-          const size_t ibegin = i * discard_size;
-
-          for (size_t k = 0; k < row_offsets_used[i]; ++k) {
-            p_row_indices_used[prefix_sum_used + k] = p_row_indices_used[ibegin + k];
-          }
-
-          prefix_sum_used += row_offsets_used[i];
-        }
-        /* resize row_indices to reduce memory */
-        row_indices->resize(prefix_sum_used);
-      }
-
-      if (nthread == 1ul || tid == 1ul) {
-        size_t prefix_sum_unused = row_offsets_unused[0];
-        for (size_t i = 1; i < nthread; ++i) {
-          const size_t ibegin = i * discard_size;
-
-          for (size_t k = 0; k < row_offsets_unused[i]; ++k) {
-            p_row_indices_unused[prefix_sum_unused + k] = p_row_indices_unused[ibegin + k];
-          }
-
-          prefix_sum_unused += row_offsets_unused[i];
-        }
-        /* resize row_indices to reduce memory */
-        unused_rows_.resize(prefix_sum_unused);
       }
     });
   }
   exc.Rethrow();
   /* discard global engine */
-  rnd = rnds[nthread - 1];
+  //rnd = rnds[nthread - 1];
 #endif  // XGBOOST_CUSTOMIZE_GLOBAL_PRNG
 }
 
@@ -2720,14 +2818,15 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
     std::vector<size_t>& row_indices = *row_set_collection_.Data();
 builder_monitor_.Start("InitDataResize");
 
-    if (!is_optimized_branch_ || param_.subsample < 1.0f) {
+    if (!is_optimized_branch_ || (param_.subsample < 1.0f && false)) {
       row_indices.resize(info.num_row_);
     }
 builder_monitor_.Stop("InitDataResize");
     size_t* p_row_indices = row_indices.data();
     // mark subsample and build list of member rows
+    InitSampling(gpair, fmat, &row_indices);
 
-    if (param_.subsample < 1.0f) {
+    if (false && param_.subsample < 1.0f) {
       CHECK_EQ(param_.sampling_method, TrainParam::kUniform)
         << "Only uniform sampling is supported, "
         << "gradient-based sampling is only support by GPU Hist.";
