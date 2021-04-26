@@ -29,6 +29,9 @@
 #include "../common/row_set.h"
 #include "../common/column_matrix.h"
 
+#include <sys/time.h>
+#include <time.h>
+
 namespace xgboost {
 
 /*!
@@ -485,6 +488,12 @@ class QuantileHistMaker: public TreeUpdater {
     const TrainParam& param_;
     // number of omp thread used during training
     int nthread_;
+    uint64_t time_BuildLocalHistogramsDense = 0;
+    uint64_t time_DenseSync = 0;
+    uint64_t time_AllReduce = 0;
+    uint64_t time_DensePartition = 0;
+    uint64_t N_CALL = 0;
+
     common::ColumnSampler column_sampler_;
     // the internal row sets
     RowSetCollection row_set_collection_;

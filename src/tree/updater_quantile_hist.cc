@@ -44,6 +44,13 @@
   #define PREFETCH_READ_T0(addr) do {} while (0)
 #endif  // defined(XGBOOST_MM_PREFETCH_PRESENT)
 
+uint64_t get_time() {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return t.tv_sec * 1000000000 + t.tv_nsec;
+}
+
+
 namespace xgboost {
 namespace tree {
 
@@ -1559,12 +1566,14 @@ CHECK_EQ(nodes_for_explicit_hist_build_.size(), 0);
 
 }
 if (is_distributed) {
+  uint64_t t1=get_time();
   builder_monitor_.Start("SyncHistogramsAllreduce");
 
   histred_.Allreduce(hist_[starting_index].data(),
                       hist_builder_.GetNumBins() * sync_count);
 
   builder_monitor_.Stop("SyncHistogramsAllreduce");
+  time_AllReduce += get_time() - t1;
   common::BlockedSpace2d space1(nodes_for_explicit_hist_build_.size(), [&](size_t) {
     return n_bins;
   }, 1024);
@@ -2150,7 +2159,8 @@ uint64_t n_call = 0;
      // return gmat.row_ptr.size() - 1;
      return size_threads;
   }, 4096);
-
+uint64_t t1 = 0;
+++N_CALL;
   for (int depth = 0; depth < param_.max_depth + 1; depth++) {
     int starting_index = std::numeric_limits<int>::max();
     int sync_count = 0;
@@ -2164,15 +2174,21 @@ if(depth > 0) {
 
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, mask, n_call);
   //  std::cout << "\n BuildNodeStats finished" << std::endl;
+  t1 = get_time();
     DensePartition<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  time_DensePartition += get_time() - t1;
   //  std::cout << "\n DensePartition finished" << std::endl;
+  t1 = get_time();
     BuildLocalHistogramsDense<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  time_BuildLocalHistogramsDense += get_time() - t1;
   //  std::cout << "\n BuildLocalHistogramsDense finished" << std::endl;
+  t1 = get_time();
     if(rabit::IsDistributed()) {
       DenseSync<true>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space, starting_index, sync_count);
     } else {
       DenseSync<false>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space, starting_index, sync_count);
     }
+  time_DenseSync += get_time() - t1;
  //   std::cout << "\n DenseSync finished" << std::endl;
     for(uint32_t i = 0; i < 128; ++i) {
       leafs_mask[i] = 0;
@@ -2180,15 +2196,21 @@ if(depth > 0) {
     // leafs_mask[0] = 0; leafs_mask[1] = 0; leafs_mask[2] = 0; leafs_mask[3] = 0; leafs_mask[4] = 0; leafs_mask[5] = 0; leafs_mask[6] = 0; leafs_mask[7] = 0;
     // leafs_mask[8] = 0; leafs_mask[9] = 0; leafs_mask[10] = 0; leafs_mask[11] = 0; leafs_mask[12] = 0; leafs_mask[13] = 0; leafs_mask[14] = 0; leafs_mask[15] = 0;
 } else {
+  t1 = get_time();
     DensePartition<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  time_DensePartition += get_time() - t1;
   //  std::cout << "\n 0DensePartition finished" << std::endl;
+  t1 = get_time();
     BuildLocalHistogramsDense<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
+  time_BuildLocalHistogramsDense += get_time() - t1;
   //  std::cout << "\n 0BuildLocalHistogramsDense finished" << std::endl;
+  t1 = get_time();
     if(rabit::IsDistributed()) {
       DenseSync<true>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space, starting_index, sync_count);
     } else {
       DenseSync<false>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space, starting_index, sync_count);
     }
+  time_DenseSync += get_time() - t1;
   //  std::cout << "\n 0DenseSync finished" << std::endl;
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
   //  std::cout << "\n 0BuildNodeStats finished" << std::endl;
@@ -2217,6 +2239,12 @@ if(depth > 0) {
     }
   }
   //std::cout << "ExpandWithDepth finished" << std::endl;
+if(N_CALL % 100 == 0) {
+    std::cout << "[TIMER]: BuildLocalHistogramsDense time,s: " <<  (double)(time_BuildLocalHistogramsDense)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]: DenseSync time,s: " <<  (double)(time_DenseSync)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:     AllReduce time,s: " <<  (double)(time_AllReduce)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]: DensePartition time,s: " <<  (double)(time_DensePartition)/(double)(1000000000) << std::endl;
+}
 }
 
 template<typename GradientSumT>
