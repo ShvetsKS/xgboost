@@ -405,6 +405,17 @@ class QuantileHistMaker: public TreeUpdater {
     const TrainParam& param_;
     // number of omp thread used during training
     int nthread_;
+    uint64_t time_BuildLocalHistograms = 0;
+    uint64_t time_Sync = 0;
+    uint64_t time_AllReduce = 0;
+    uint64_t time_Partition = 0;
+    uint64_t time_ExpandWithDepthWise = 0;
+    uint64_t time_BuildNodeStats = 0;
+    uint64_t time_EvaluateAndApplySplits = 0;
+    uint64_t time_UpdatePredictionCache = 0;
+    uint64_t time_InitData = 0;
+    uint64_t N_CALL;
+
     common::ColumnSampler column_sampler_;
     // the internal row sets
     RowSetCollection row_set_collection_;

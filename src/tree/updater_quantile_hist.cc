@@ -29,7 +29,14 @@
 #include "../common/row_set.h"
 #include "../common/column_matrix.h"
 #include "../common/threading_utils.h"
+#include <sys/time.h>
+#include <time.h>
 
+uint64_t get_time() {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return t.tv_sec * 1000000000 + t.tv_nsec;
+}
 namespace xgboost {
 namespace tree {
 
@@ -486,7 +493,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
   const std::vector<GradientPair> &gpair_h) {
   unsigned timestamp = 0;
   int num_leaves = 0;
-
+uint64_t time_ExpandWithDepthWise_t1 = get_time();
   // in depth_wise growing, we feed loss_chg with 0.0 since it is not used anyway
   qexpand_depth_wise_.emplace_back(ExpandEntry(ExpandEntry::kRootNid, ExpandEntry::kEmptyNid,
       p_tree->GetDepth(ExpandEntry::kRootNid), 0.0, timestamp++));
@@ -498,13 +505,19 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
     SplitSiblings(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
+    uint64_t t1 = get_time();
     BuildLocalHistograms(gmat, gmatb, p_tree, gpair_h);
+    time_BuildLocalHistograms += get_time() - t1;
+    t1 = get_time();
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
+    time_Sync += get_time() - t1;
+    t1 = get_time();
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
-
+    time_BuildNodeStats += get_time() - t1;
+    t1 = get_time();
     EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
                    &temp_qexpand_depth);
-
+    time_EvaluateAndApplySplits += get_time() - t1;
     // clean up
     qexpand_depth_wise_.clear();
     nodes_for_subtraction_trick_.clear();
@@ -516,6 +529,15 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
       temp_qexpand_depth.clear();
     }
   }
+  time_ExpandWithDepthWise += get_time() - time_ExpandWithDepthWise_t1;
+if(N_CALL % 100 == 0) {
+    std::cout << "[TIMER]:ExpandWithDepthWise time,s: " <<  (double)(time_ExpandWithDepthWise)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    BuildLocalHistograms time,s: " <<  (double)(time_BuildLocalHistograms)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    Sync time,s: " <<  (double)(time_Sync)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    BuildNodeStats time,s: " <<  (double)(time_BuildNodeStats)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    EvaluateAndApplySplits (Partition included) time,s: " <<  (double)(time_EvaluateAndApplySplits)/(double)(1000000000) << std::endl;
+}
+
 }
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
@@ -630,6 +652,7 @@ template<typename GradientSumT>
 bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
     const DMatrix* data,
     HostDeviceVector<bst_float>* p_out_preds, const int gid, const int ngroup) {
+      uint64_t t1 = get_time();
   // p_last_fmat_ is a valid pointer as long as UpdatePredictionCache() is called in
   // conjunction with Update().
   if (!p_last_fmat_ || !p_last_tree_ || data != p_last_fmat_ ||
@@ -694,6 +717,10 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
     }
   }
   builder_monitor_.Stop("UpdatePredictionCache");
+  time_UpdatePredictionCache += get_time() - t1;
+if((N_CALL + 1) % 100 == 0) {
+    std::cout << "[TIMER]:UpdatePredictionCache time,s: " <<  (double)(time_UpdatePredictionCache)/(double)(1000000000) << std::endl;
+}
   return true;
 }
 
