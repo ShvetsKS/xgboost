@@ -97,6 +97,8 @@ void QuantileHistMaker::CallBuilderUpdate(const std::unique_ptr<Builder<Gradient
 void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
                                DMatrix *dmat,
                                const std::vector<RegTree *> &trees) {
+  uint64_t t1 = 0;
+  t1 = get_time();
   std::vector<GradientPair>& gpair_h = gpair->HostVector();
   if (dmat != p_last_dmat_ || is_gmat_initialized_ == false) {
     updater_monitor_.Start("GmatInitialization");
@@ -106,6 +108,7 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
       gmatb_.Init(gmat_, column_matrix_, param_);
     }
     updater_monitor_.Stop("GmatInitialization");
+    time_GmatInitialization += get_time() - t1;
     // A proper solution is puting cut matrix in DMatrix, see:
     // https://github.com/dmlc/xgboost/issues/5143
     is_gmat_initialized_ = true;
@@ -135,6 +138,12 @@ void QuantileHistMaker::Update(HostDeviceVector<GradientPair> *gpair,
   param_.learning_rate = lr;
 
   p_last_dmat_ = dmat;
+  time_FullUpdate += get_time() - t1;
+  N_CALL_++;
+  if(N_CALL_ % 100 == 0) {
+    std::cout << "[TIMER]:FullUpdate time,s: " <<  (double)(time_FullUpdate)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    GmatInitialization time,s: " <<  (double)(time_GmatInitialization)/(double)(1000000000) << std::endl;
+  }
 }
 
 bool QuantileHistMaker::UpdatePredictionCache(
@@ -2098,7 +2107,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWiseDense(
   DMatrix *p_fmat,
   RegTree *p_tree,
   const std::vector<GradientPair> &gpair_h) {
-
+uint64_t time_ExpandWithDepthWiseDense_t1 = get_time();
   saved_split_ind_.clear();
   saved_split_ind_.resize(1 << (param_.max_depth + 1), 0);
   if (histograms_.size() == 0) {
@@ -2171,8 +2180,9 @@ uint64_t t1 = 0;
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
     uint64_t mask[128] = {};
 if(depth > 0) {
-
+  t1 = get_time();
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, mask, n_call);
+  time_BuildNodeStats += get_time() - t1;
   //  std::cout << "\n BuildNodeStats finished" << std::endl;
   t1 = get_time();
     DensePartition<BinIdxType>(gmat, gmatb, p_tree, gpair_h, depth, &histograms_, node_ids_.data(), &split_values, &split_indexs, &column_matrix, mask, leafs_mask, param_.max_depth, &space);
@@ -2212,11 +2222,15 @@ if(depth > 0) {
     }
   time_DenseSync += get_time() - t1;
   //  std::cout << "\n 0DenseSync finished" << std::endl;
+  t1 = get_time();
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
+  time_BuildNodeStats += get_time() - t1;
   //  std::cout << "\n 0BuildNodeStats finished" << std::endl;
 }
+  t1 = get_time();
     EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
                    &temp_qexpand_depth, &tmp_compleate_trees_depth, leafs_mask, &split_values, &split_indexs, n_call);
+  time_EvaluateAndApplySplits += get_time() - t1;
    // std::cout << "\n EvaluateAndApplySplits finished depth: " << depth << std::endl;
     // clean up
     nodes_for_subtraction_trick_.clear();
@@ -2239,11 +2253,15 @@ if(depth > 0) {
     }
   }
   //std::cout << "ExpandWithDepth finished" << std::endl;
+  time_ExpandWithDepthWiseDense += get_time() - time_ExpandWithDepthWiseDense_t1;
 if(N_CALL % 100 == 0) {
-    std::cout << "[TIMER]: BuildLocalHistogramsDense time,s: " <<  (double)(time_BuildLocalHistogramsDense)/(double)(1000000000) << std::endl;
-    std::cout << "[TIMER]: DenseSync time,s: " <<  (double)(time_DenseSync)/(double)(1000000000) << std::endl;
-    std::cout << "[TIMER]:     AllReduce time,s: " <<  (double)(time_AllReduce)/(double)(1000000000) << std::endl;
-    std::cout << "[TIMER]: DensePartition time,s: " <<  (double)(time_DensePartition)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:ExpandWithDepthWiseDense time,s: " <<  (double)(time_ExpandWithDepthWiseDense)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    BuildLocalHistogramsDense time,s: " <<  (double)(time_BuildLocalHistogramsDense)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    DenseSync time,s: " <<  (double)(time_DenseSync)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:        AllReduce time,s: " <<  (double)(time_AllReduce)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    DensePartition time,s: " <<  (double)(time_DensePartition)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    BuildNodeStats time,s: " <<  (double)(time_BuildNodeStats)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:    EvaluateAndApplySplits time,s: " <<  (double)(time_EvaluateAndApplySplits)/(double)(1000000000) << std::endl;
 }
 }
 
@@ -2452,6 +2470,7 @@ template<typename GradientSumT>
 bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
     const DMatrix* data,
     HostDeviceVector<bst_float>* p_out_preds, const int gid, const int ngroup, const GHistIndexMatrix* gmat_ptr) {
+  uint64_t t1 = 0;
   // p_last_fmat_ is a valid pointer as long as UpdatePredictionCache() is called in
   // conjunction with Update().
   if (!p_last_fmat_ || !p_last_tree_ || data != p_last_fmat_) {
@@ -2533,6 +2552,10 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
     }
 
   builder_monitor_.Stop("UpdatePredictionCache");
+  time_UpdatePredictionCacheDense += get_time() - t1;
+  if ((N_CALL + 1) % 100 == 0) {
+    std::cout << "[TIMER]:UpdatePredictionCacheDense time,s: " <<  (double)(time_UpdatePredictionCacheDense)/(double)(1000000000) << std::endl;
+  }
   return true;
 }
 
@@ -2633,6 +2656,7 @@ void QuantileHistMaker::Builder<GradientSumT>::InitData(const GHistIndexMatrix& 
                                           const std::vector<GradientPair>& gpair,
                                           const DMatrix& fmat,
                                           const RegTree& tree) {
+  uint64_t t1 = get_time();
   CHECK((param_.max_depth > 0 || param_.max_leaves > 0))
       << "max_depth or max_leaves cannot be both 0 (unlimited); "
       << "at least one should be a positive quantity.";
@@ -2802,6 +2826,10 @@ builder_monitor_.Stop("InitDataResize");
     }
   }
   builder_monitor_.Stop("InitData");
+  time_InitData += get_time() - t1;
+  if ((N_CALL + 1) % 100 == 0) {
+    std::cout << "[TIMER]:InitData time,s: " <<  (double)(time_InitData)/(double)(1000000000) << std::endl;
+  }
 }
 
 // if sum of statistics for non-missing values in the node

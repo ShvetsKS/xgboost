@@ -492,8 +492,12 @@ class QuantileHistMaker: public TreeUpdater {
     uint64_t time_DenseSync = 0;
     uint64_t time_AllReduce = 0;
     uint64_t time_DensePartition = 0;
-    uint64_t N_CALL = 0;
-
+    uint64_t time_ExpandWithDepthWiseDense = 0;
+    uint64_t time_BuildNodeStats = 0;
+    uint64_t time_EvaluateAndApplySplits = 0;
+    uint64_t time_UpdatePredictionCacheDense = 0;
+    uint64_t time_InitData = 0;
+    uint64_t N_CALL;
     common::ColumnSampler column_sampler_;
     // the internal row sets
     RowSetCollection row_set_collection_;
@@ -578,6 +582,11 @@ class QuantileHistMaker: public TreeUpdater {
 
   std::unique_ptr<TreeUpdater> pruner_;
   FeatureInteractionConstraintHost int_constraint_;
+  uint64_t time_GmatInitialization = 0;
+  uint64_t time_FullUpdate = 0;
+
+  uint64_t N_CALL_ = 0;
+
 };
 
 template <typename GradientSumT>
