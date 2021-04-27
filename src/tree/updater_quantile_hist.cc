@@ -2693,6 +2693,44 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
   return true;
 }
 
+        uint64_t skip(uint64_t ns, uint64_t seed)
+        {
+            const uint64_t multiplier = 16807;
+            const uint64_t mask = 2147483647 - 1ULL;
+
+            int64_t nskip = ns & mask;
+
+            // The algorithm here to determine the parameters used to skip ahead is
+            // described in the paper F. Brown, "Random Number Generation with Arbitrary Stride,"
+            // Trans. Am. Nucl. Soc. (Nov. 1994). This algorithm is able to skip ahead in
+            // O(log2(N)) operations instead of O(N). It computes parameters
+            // M and C which can then be used to find x_N = M*x_0 + C mod 2^M.
+
+            // initialize constants
+            uint64_t m = multiplier; // original multiplicative constant
+            uint64_t c = 0;  // original additive constant
+
+            uint64_t m_next = 1ULL; // new effective multiplicative constant
+            uint64_t c_next = 0ULL; // new effective additive constant
+
+            while (nskip > 0LL)
+            {
+                if (nskip & 1LL) // check least significant bit for being 1
+                {
+                    m_next = (m_next * m) & mask;
+                    c_next = (c_next * m + c) & mask;
+                }
+
+                c = ((m + 1ULL) * c) & mask;
+                m = (m * m) & mask;
+
+                nskip = nskip >> 1LL; // shift right, dropping least significant bit
+            }
+
+            // with M and C, we can now find the new seed
+            return (m_next * seed + c_next) & mask;
+        }
+
 template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::InitSampling(const std::vector<GradientPair>& gpair,
                                                 const DMatrix& fmat,
@@ -2722,21 +2760,23 @@ void QuantileHistMaker::Builder<GradientSumT>::InitSampling(const std::vector<Gr
   std::vector<size_t> row_offsets_used(nthread, 0);
   std::vector<size_t> row_offsets_unused(nthread, 0);
   /* usage of mt19937_64 give 2x speed up for subsampling */
-  //size_t initial_seed = rnd();
-  std::vector<size_t> initial_seed(nthread);// = rnd();
-  for (size_t i = 0; i < nthread; ++i) {
-    initial_seed[i] = rnd();
-  }
+  size_t initial_seed = rnd();
+  // std::vector<size_t> initial_seed(nthread);// = rnd();
+  // for (size_t i = 0; i < nthread; ++i) {
+  //   initial_seed[i] = rnd();
+  // }
   // std::vector<std::mt19937> rnds(nthread);
   // /* create engine for each thread */
   // for (std::mt19937& r : rnds) {
   //   r = rnd;
   // }
   const size_t discard_size = info.num_row_ / nthread;
+  std::cout << "discard_size: " << discard_size << std::endl;
   auto upper_border = lc_engine<16807, 0, 2147483647>::max();//static_cast<float>(std::numeric_limits<uint32_t>::max());
   uint32_t coin_flip_border = static_cast<uint32_t>(upper_border * param_.subsample);
   std::bernoulli_distribution coin_flip(param_.subsample);
   dmlc::OMPException exc;
+  std::vector<size_t> counts(nthread, 0);
   #pragma omp parallel num_threads(nthread)
   {
     exc.Run([&]() {
@@ -2746,17 +2786,30 @@ void QuantileHistMaker::Builder<GradientSumT>::InitSampling(const std::vector<Gr
                           info.num_row_ : ibegin + discard_size;
       // lc_engine<16807, 0, 2147483647> def_rnd(initial_seed);
       // def_rnd.discard(discard_size * tid);
-      std::default_random_engine eng(initial_seed[tid]);
+      const uint64_t mask = 2147483647 - 1ULL;
+
+      int64_t nskip = (uint64_t)(discard_size * tid) & mask;
+
+      size_t initial_seed_th = skip(discard_size * tid, initial_seed);
+      std::linear_congruential_engine<std::uint_fast32_t, 16807, 0, 2147483647> eng(initial_seed_th);
+      //eng.discard(discard_size * tid);
       //rnds[tid].discard(discard_size * tid);
+      size_t count = 0;
       for (size_t i = ibegin; i < iend; ++i) {
         if (!(gpair[i].GetHess() >= 0.0f && coin_flip(eng))) {
           gpair_ref[i] = GradientPair(0);//gpair_ref[i];
           //std::cout << "\nGOOD EPTA!\n";
+          count++;
         }
       }
+      counts[tid] = nskip;
     });
   }
   exc.Rethrow();
+  for(size_t i = 0; i < nthread; ++i) {
+    std::cout << counts[i] << "   ";
+  }
+  std::cout << std::endl;
   /* discard global engine */
   //rnd = rnds[nthread - 1];
 #endif  // XGBOOST_CUSTOMIZE_GLOBAL_PRNG
