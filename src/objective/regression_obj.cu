@@ -22,7 +22,7 @@
 #include "../common/threading_utils.h"
 #include "./regression_loss.h"
 
-
+uint64_t get_time();
 namespace xgboost {
 namespace obj {
 
@@ -43,7 +43,8 @@ template<typename Loss>
 class RegLossObj : public ObjFunction {
  protected:
   HostDeviceVector<float> additional_input_;
-
+  uint64_t N_CALL = 0;
+  uint64_t time_GetGradient = 0;
  public:
   // 0 - label_correct flag, 1 - scale_pos_weight, 2 - is_null_weight
   RegLossObj(): additional_input_(3) {}
@@ -55,6 +56,7 @@ class RegLossObj : public ObjFunction {
   void GetGradient(const HostDeviceVector<bst_float>& preds,
                    const MetaInfo &info, int,
                    HostDeviceVector<GradientPair>* out_gpair) override {
+    uint64_t t1 = get_time();
     CHECK_EQ(preds.Size(), info.labels_.Size())
         << " " << "labels are not correctly provided"
         << "preds.size=" << preds.Size() << ", label.size=" << info.labels_.Size() << ", "
@@ -102,6 +104,10 @@ class RegLossObj : public ObjFunction {
     if (flag == 0) {
       LOG(FATAL) << Loss::LabelErrorMsg();
     }
+    time_GetGradient += get_time() - t1;
+  if (N_CALL % 100 == 0) {
+    std::cout << "[TIMER]:GetGradient time,s: " <<  (double)(time_GetGradient)/(double)(1000000000) << std::endl;
+  }
   }
 
  public:
