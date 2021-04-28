@@ -45,7 +45,7 @@
 #include "common/charconv.h"
 #include "common/version.h"
 #include "common/threading_utils.h"
-
+uint64_t get_time();
 namespace {
 
 const char* kMaxDeltaStepDefaultValue = "0.7";
@@ -1038,6 +1038,7 @@ class LearnerImpl : public LearnerIO {
   }
 
   void UpdateOneIter(int iter, std::shared_ptr<DMatrix> train) override {
+    uint64_t t1 = get_time();
     monitor_.Start("UpdateOneIter");
     TrainingObserver::Instance().Update(iter);
     this->Configure();
@@ -1062,10 +1063,16 @@ class LearnerImpl : public LearnerIO {
 
     gbm_->DoBoost(train.get(), &gpair_, &predt);
     monitor_.Stop("UpdateOneIter");
+    time_UpdateOneIter += get_time() - t1;
+    N_CALL++;
+    if(N_CALL % 100 == 0) {
+      std::cout << "[TIMER]: UpdateOneIter time,s: " << (double)(time_UpdateOneIter)/(double)(1000000000) << std::endl;
+    }
   }
 
   void BoostOneIter(int iter, std::shared_ptr<DMatrix> train,
                     HostDeviceVector<GradientPair>* in_gpair) override {
+                      uint64_t t1 = get_time();
     monitor_.Start("BoostOneIter");
     this->Configure();
     if (generic_parameters_.seed_per_iteration || rabit::IsDistributed()) {
@@ -1078,6 +1085,11 @@ class LearnerImpl : public LearnerIO {
 
     gbm_->DoBoost(train.get(), in_gpair, &local_cache->Entry(train.get()));
     monitor_.Stop("BoostOneIter");
+    N_CALL++;
+    time_BoostOneIter += get_time() - t1;
+    if(N_CALL % 100 == 0) {
+      std::cout << "[TIMER]: BoostOneIter time,s: " << (double)(time_BoostOneIter)/(double)(1000000000) << std::endl;
+    }
   }
 
   std::string EvalOneIter(int iter,
@@ -1241,6 +1253,9 @@ class LearnerImpl : public LearnerIO {
  private:
   /*! \brief random number transformation seed. */
   static int32_t constexpr kRandSeedMagic = 127;
+  uint64_t N_CALL = 0;
+  uint64_t time_UpdateOneIter = 0;
+  uint64_t time_BoostOneIter = 0;
   // gradient pairs
   HostDeviceVector<GradientPair> gpair_;
   /*! \brief Temporary storage to prediction.  Useful for storing data transformed by
