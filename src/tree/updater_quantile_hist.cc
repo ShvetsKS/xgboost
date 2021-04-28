@@ -530,6 +530,7 @@ uint64_t time_ExpandWithDepthWise_t1 = get_time();
     }
   }
   time_ExpandWithDepthWise += get_time() - time_ExpandWithDepthWise_t1;
+++N_CALL;
 if(N_CALL % 100 == 0) {
     std::cout << "[TIMER]:ExpandWithDepthWise time,s: " <<  (double)(time_ExpandWithDepthWise)/(double)(1000000000) << std::endl;
     std::cout << "[TIMER]:    BuildLocalHistograms time,s: " <<  (double)(time_BuildLocalHistograms)/(double)(1000000000) << std::endl;
@@ -718,7 +719,7 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCache(
   }
   builder_monitor_.Stop("UpdatePredictionCache");
   time_UpdatePredictionCache += get_time() - t1;
-if((N_CALL + 1) % 100 == 0) {
+if((N_CALL) % 100 == 0) {
     std::cout << "[TIMER]:UpdatePredictionCache time,s: " <<  (double)(time_UpdatePredictionCache)/(double)(1000000000) << std::endl;
 }
   return true;
