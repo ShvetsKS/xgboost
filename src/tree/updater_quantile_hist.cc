@@ -2470,7 +2470,7 @@ template<typename GradientSumT>
 bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
     const DMatrix* data,
     HostDeviceVector<bst_float>* p_out_preds, const int gid, const int ngroup, const GHistIndexMatrix* gmat_ptr) {
-  uint64_t t1 = 0;
+  uint64_t t1 = get_time();
   // p_last_fmat_ is a valid pointer as long as UpdatePredictionCache() is called in
   // conjunction with Update().
   if (!p_last_fmat_ || !p_last_tree_ || data != p_last_fmat_) {
@@ -2553,7 +2553,7 @@ bool QuantileHistMaker::Builder<GradientSumT>::UpdatePredictionCacheDense(
 
   builder_monitor_.Stop("UpdatePredictionCache");
   time_UpdatePredictionCacheDense += get_time() - t1;
-  if ((N_CALL + 1) % 100 == 0) {
+  if ((N_CALL) % 100 == 0) {
     std::cout << "[TIMER]:UpdatePredictionCacheDense time,s: " <<  (double)(time_UpdatePredictionCacheDense)/(double)(1000000000) << std::endl;
   }
   return true;
