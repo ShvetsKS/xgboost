@@ -2381,6 +2381,7 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
       ExpandWithDepthWise(gmat, gmatb, column_matrix, p_fmat, p_tree, gpair_h);
     }
   }
+  uint64_t t1 = get_time();
 //std::cout << "Pstats update??? : " << p_tree->param.num_nodes << std::endl;
   for (int nid = 0; nid < p_tree->param.num_nodes; ++nid) {
 //std::cout << "nid: " << nid << std::endl;
@@ -2391,6 +2392,10 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
 //std::cout << "Pstats update??? finished" << std::endl;
   pruner_->Update(gpair, p_fmat, std::vector<RegTree*>{p_tree});
 //std::cout << "Pruner finished finished" << std::endl;
+    time_Prunner += get_time() - t1;
+  if (N_CALL % 100 == 0) {
+    std::cout << "[TIMER]:Prunner time,s: " <<  (double)(time_Prunner)/(double)(1000000000) << std::endl;
+  }
   builder_monitor_.Stop("Update");
 }
 

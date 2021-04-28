@@ -497,6 +497,7 @@ class QuantileHistMaker: public TreeUpdater {
     uint64_t time_EvaluateAndApplySplits = 0;
     uint64_t time_UpdatePredictionCacheDense = 0;
     uint64_t time_InitData = 0;
+    uint64_t time_Prunner = 0;
     uint64_t N_CALL;
     common::ColumnSampler column_sampler_;
     // the internal row sets

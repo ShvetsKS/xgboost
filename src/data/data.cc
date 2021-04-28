@@ -27,7 +27,7 @@
 #include "./sparse_page_source.h"
 #include "./sparse_page_dmatrix.h"
 #endif  // DMLC_ENABLE_STD_THREAD
-
+uint64_t get_time();
 namespace dmlc {
 DMLC_REGISTRY_ENABLE(::xgboost::data::SparsePageFormatReg<::xgboost::SparsePage>);
 DMLC_REGISTRY_ENABLE(::xgboost::data::SparsePageFormatReg<::xgboost::CSCPage>);
@@ -872,6 +872,7 @@ void SparsePage::Push(const SparsePage &batch) {
 
 template <typename AdapterBatchT>
 uint64_t SparsePage::Push(const AdapterBatchT& batch, float missing, int nthread) {
+  uint64_t t1 = get_time();
   constexpr bool kIsRowMajor = AdapterBatchT::kIsRowMajor;
   // Allow threading only for row-major case as column-major requires O(nthread*batch_size) memory
   nthread = kIsRowMajor ? nthread : 1;
@@ -971,6 +972,7 @@ uint64_t SparsePage::Push(const AdapterBatchT& batch, float missing, int nthread
   }
   exec.Rethrow();
   omp_set_num_threads(nthread_original);
+  std::cout << "[TIMER]:DMATRIX create time,s: " <<  (double)(get_time() - t1)/(double)(1000000000) << std::endl;
 
   return max_columns;
 }
