@@ -2255,7 +2255,7 @@ if(depth > 0) {
   //std::cout << "ExpandWithDepth finished" << std::endl;
   time_ExpandWithDepthWiseDense += get_time() - time_ExpandWithDepthWiseDense_t1;
 if(N_CALL % 100 == 0) {
-    std::cout << "[TIMER]:ExpandWithDepthWiseDense time,s: " <<  (double)(time_ExpandWithDepthWiseDense)/(double)(1000000000) << std::endl;
+    std::cout << "[TIMER]:ExpandWithDepthWiseDense time,s: " << (double)(time_ExpandWithDepthWiseDense)/(double)(1000000000) << std::endl;
     std::cout << "[TIMER]:    BuildLocalHistogramsDense time,s: " <<  (double)(time_BuildLocalHistogramsDense)/(double)(1000000000) << std::endl;
     std::cout << "[TIMER]:    DenseSync time,s: " <<  (double)(time_DenseSync)/(double)(1000000000) << std::endl;
     std::cout << "[TIMER]:        AllReduce time,s: " <<  (double)(time_AllReduce)/(double)(1000000000) << std::endl;
