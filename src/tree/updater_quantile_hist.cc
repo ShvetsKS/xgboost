@@ -685,7 +685,7 @@ void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
     }
     const int32_t sc = (*split_conditions)[nid + 1];
     const bst_uint si = (*split_ind)[nid + 1];
-    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    const int32_t cmp_value = ((int32_t)(columnar_data[(uint64_t)(si)*(uint64_t)(rows_offset) + i]) + (int32_t)(offsets[si]));
 
     nodes_ids[i] = 2*nid + !(cmp_value <= sc);
     if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask+nodes_ids[i]/64)) {
@@ -722,7 +722,7 @@ void JustPartitionLastLayerColumn(const size_t row_indices_begin,
     const int32_t sc = (*split_conditions)[nid + 1];
     const bst_uint si = (*split_ind)[nid + 1];
     nodes_ids[i] = (uint16_t)(1) << 15;
-    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    const int32_t cmp_value = ((int32_t)(columnar_data[(uint64_t)(si)*(uint64_t)(rows_offset) + i]) + (int32_t)(offsets[si]));
     nodes_ids[i] |= (uint16_t)((*curr_level_nodes)[2*nid + !(cmp_value <= sc)]);
   }
 }
@@ -746,7 +746,7 @@ void JustPartitionColumnar(const size_t row_indices_begin,
     const uint32_t nid = nodes_ids[i];
     const int32_t sc = (*split_conditions)[nid + 1];
     const bst_uint si = (*split_ind)[nid + 1];
-    const int32_t cmp_value = ((int32_t)(columnar_data[si*rows_offset + i]) + (int32_t)(offsets[si]));
+    const int32_t cmp_value = ((int32_t)(columnar_data[(uint64_t)(si)*(uint64_t)(rows_offset) + i]) + (int32_t)(offsets[si]));
     nodes_ids[i] = 2*nid + !(cmp_value <= sc);
     if (((uint64_t)(1) << (nodes_ids[i]%64)) & *(mask + nodes_ids[i]/64)) {
       rows[++count] = i;
