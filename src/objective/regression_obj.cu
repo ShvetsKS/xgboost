@@ -105,6 +105,7 @@ class RegLossObj : public ObjFunction {
       LOG(FATAL) << Loss::LabelErrorMsg();
     }
     time_GetGradient += get_time() - t1;
+  N_CALL++;
   if (N_CALL % 100 == 0) {
     std::cout << "[TIMER]:GetGradient time,s: " <<  (double)(time_GetGradient)/(double)(1000000000) << std::endl;
   }
