@@ -312,7 +312,7 @@ class QuantileHistMaker: public TreeUpdater {
                         const GHistIndexMatrix& gmat,
                         const ColumnMatrix& column_matrix,
                         const HistCollection<GradientSumT>& hist,
-                        RegTree* p_tree, int depth, std::vector<int32_t>* split_conditions, std::vector<bst_uint>* slit_ind, std::vector<uint16_t>* compleate_splits);
+                        RegTree* p_tree, int depth, std::vector<int32_t>* split_conditions, std::vector<uint64_t>* slit_ind, std::vector<uint16_t>* compleate_splits);
     void ApplySplit(std::vector<ExpandEntry> nodes,
                         const GHistIndexMatrix& gmat,
                         const ColumnMatrix& column_matrix,
@@ -378,7 +378,7 @@ class QuantileHistMaker: public TreeUpdater {
                               RegTree *p_tree,
                               const std::vector<GradientPair> &gpair_h, int depth,
                               std::vector<std::vector<GradientSumT>>* histograms, uint16_t* nodes_id,
-                              std::vector<int32_t>* split_conditions, std::vector<bst_uint>* slit_ind,
+                              std::vector<int32_t>* split_conditions, std::vector<uint64_t>* slit_ind,
                               const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space);
 
     void BuildLocalHistograms(const GHistIndexMatrix &gmat,
@@ -391,7 +391,7 @@ class QuantileHistMaker: public TreeUpdater {
                               RegTree *p_tree,
                               const std::vector<GradientPair> &gpair_h, int depth = 0,
                               std::vector<std::vector<GradientSumT>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
-                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr,
+                              std::vector<int32_t>* split_conditions = nullptr, std::vector<uint64_t>* slit_ind = nullptr,
                               const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr, int max_depth = 0, common::BlockedSpace2d* space = nullptr);
     template <bool is_distributed>
     void DenseSync(const GHistIndexMatrix &gmat,
@@ -399,7 +399,7 @@ class QuantileHistMaker: public TreeUpdater {
                               RegTree *p_tree,
                               const std::vector<GradientPair> &gpair_h, int depth = 0,
                               std::vector<std::vector<GradientSumT>>* histograms = nullptr, uint16_t* nodes_id = nullptr,
-                              std::vector<int32_t>* split_conditions = nullptr, std::vector<bst_uint>* slit_ind = nullptr,
+                              std::vector<int32_t>* split_conditions = nullptr, std::vector<uint64_t>* slit_ind = nullptr,
                               const ColumnMatrix *column_matrix = nullptr, uint64_t* mask = nullptr, uint64_t* leaf_mask = nullptr, int max_depth = 0, common::BlockedSpace2d* space = nullptr,
                               int starting_index = 0, int sync_count = 0);
 
@@ -440,7 +440,7 @@ class QuantileHistMaker: public TreeUpdater {
                                 unsigned *timestamp,
                                 std::vector<ExpandEntry> *temp_qexpand_depth,
                                 std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask,
-                                std::vector<int32_t>* split_conditions, std::vector<bst_uint>* slit_ind, int n_call);
+                                std::vector<int32_t>* split_conditions, std::vector<uint64_t>* slit_ind, int n_call);
     void EvaluateAndApplySplits(const GHistIndexMatrix &gmat,
                                 const ColumnMatrix &column_matrix,
                                 RegTree *p_tree,

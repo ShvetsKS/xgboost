@@ -653,7 +653,7 @@ void JustPartitionWithLeafsMaskColumn(const size_t row_indices_begin,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
-                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, uint64_t* mask,
+                          std::vector<int32_t>* split_conditions, std::vector<uint64_t>* split_ind, uint64_t* mask,
                           uint64_t* leafs_mask, std::vector<int>* prev_level_nodes, uint32_t* nodes_count, const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
   const BinIdxType* columnar_data = numa;//reinterpret_cast<const BinIdxType*>(column_matrix->GetIndexData());
@@ -689,7 +689,7 @@ void JustPartitionLastLayerColumn(const size_t row_indices_begin,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
-                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                          std::vector<int32_t>* split_conditions, std::vector<uint64_t>* split_ind,
                           std::vector<int>* curr_level_nodes, uint64_t* leafs_mask, std::vector<int>* prev_level_nodes,
                           const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
   const uint32_t rows_offset = gmat.row_ptr.size() - 1;
@@ -721,7 +721,7 @@ void JustPartitionColumnar(const size_t row_indices_begin,
                           const GHistIndexMatrix& gmat,
                           const size_t n_features,
                           uint32_t* hist, uint32_t* rows, uint32_t& count, const BinIdxType* numa, uint16_t* nodes_ids,
-                          std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                          std::vector<int32_t>* split_conditions, std::vector<uint64_t>* split_ind,
                           uint64_t* mask, uint32_t* nodes_count,
                           const ColumnMatrix *column_matrix, const size_t* row_indices_ptr) {
   const uint32_t* offsets = gmat.index.Offset();
@@ -1018,7 +1018,7 @@ void QuantileHistMaker::Builder<GradientSumT>::DensePartition(
     RegTree *p_tree,
     const std::vector<GradientPair> &gpair_h, int depth,
     std::vector<std::vector<GradientSumT>>* histograms, uint16_t* nodes_ids, std::vector<int32_t>* split_conditions,
-    std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr) {
+    std::vector<uint64_t>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr) {
   const size_t n_features = gmat.cut.Ptrs().size() - 1;
   const size_t n_bins = gmat.cut.Ptrs().back();
   std::vector<size_t>& row_indices = *row_set_collection_.Data();
@@ -1317,7 +1317,7 @@ void QuantileHistMaker::Builder<GradientSumT>::DenseSync(
     RegTree *p_tree,
     const std::vector<GradientPair> &gpair_h, int depth,
     std::vector<std::vector<GradientSumT>>* histograms, uint16_t* nodes_ids, std::vector<int32_t>* split_conditions,
-    std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr,
+    std::vector<uint64_t>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr,
     int starting_index, int sync_count) {
   const size_t n_bins = gmat.cut.Ptrs().back();
   const size_t n_features = gmat.cut.Ptrs().size() - 1;
@@ -1654,7 +1654,7 @@ void QuantileHistMaker::Builder<GradientSumT>::BuildLocalHistogramsDense(
     RegTree *p_tree,
     const std::vector<GradientPair> &gpair_h, int depth,
     std::vector<std::vector<GradientSumT>>* histograms, uint16_t* nodes_ids, std::vector<int32_t>* split_conditions,
-    std::vector<bst_uint>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr) {
+    std::vector<uint64_t>* split_ind, const ColumnMatrix *column_matrix, uint64_t* mask, uint64_t* leaf_mask, int max_depth, common::BlockedSpace2d* space_ptr) {
 
 builder_monitor_.Start("BuildLocalHistograms FULL");
   std::string timer_name = "BuildLocalHistograms:";
@@ -2046,7 +2046,7 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
     unsigned *timestamp,
     std::vector<ExpandEntry> *temp_qexpand_depth,
     std::vector<uint16_t>* compleate_tmp, uint64_t* leaf_mask,
-    std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind, int n_call) {
+    std::vector<int32_t>* split_conditions, std::vector<uint64_t>* split_ind, int n_call) {
 //std::cout << "!EvaluateAndApplySplits start " << std::endl;
 
 
@@ -2190,7 +2190,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWiseDense(
   compleate_trees_depth_wise_.emplace_back(0);
   ++num_leaves;
   node_ids_.resize(gmat.row_ptr.size() - 1,0);
-  std::vector<bst_uint> split_indexs(1 << param_.max_depth + 1);
+  std::vector<uint64_t> split_indexs(1 << param_.max_depth + 1);
   std::vector<int32_t> split_values(1 << param_.max_depth + 1);
 //std::cout << "split_conditions.size(): " << split_values.size() << " split_ind.size(): " << split_indexs.size() << std::endl;
 
@@ -3234,13 +3234,13 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
                                             const GHistIndexMatrix& gmat,
                                             const ColumnMatrix& column_matrix,
                                             const HistCollection<GradientSumT>& hist,
-                                            RegTree* p_tree, int depth, std::vector<int32_t>* split_conditions, std::vector<bst_uint>* split_ind,
+                                            RegTree* p_tree, int depth, std::vector<int32_t>* split_conditions, std::vector<uint64_t>* split_ind,
                                             std::vector<uint16_t>* compleate_splits ) {
   std::string timer_name = "Partition:";
   timer_name += std::to_string(depth);
   builder_monitor_.Start("ApplySplit");
   const uint32_t* offsets = gmat.index.Offset();
-  const uint32_t rows_offset = gmat.row_ptr.size() - 1;
+  const uint64_t rows_offset = gmat.row_ptr.size() - 1;
 
   // 1. Find split condition for each split
   const size_t n_nodes = nodes.size();
@@ -3249,8 +3249,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ApplySplit(const std::vector<Expa
   (*split_ind)[0] = n_nodes;
   for (size_t i = 0; i < n_nodes; ++i) {
       const int32_t nid = nodes[i].nid;
-      const bst_uint fid = (*p_tree)[nid].SplitIndex();
-      // TODO extend type for split_ind as it should be more than 32bit
+      const uint64_t fid = (*p_tree)[nid].SplitIndex();
       (*split_ind)[(*compleate_splits)[i] + 1] = fid*rows_offset;
       (*split_conditions)[(*compleate_splits)[i] + 1] = (*split_conditions)[(*compleate_splits)[i] + 1] - offsets[fid];
   }
