@@ -1128,7 +1128,7 @@ builder_monitor_.Start("JustPartition!!!!!!" + depth_str);
 threads_rows_nodes_wise_.resize(nthreads);
 const bool hist_fit_to_l2 = 1024*1024*0.8 > 16*gmat.cut.Ptrs().back();
 
-if (n_features*summ_size1 / nthreads < (1 << (depth + 2))*n_bins || (depth > 2 && !hist_fit_to_l2) || (n_features == 61) && depth > 4) {
+if (n_features*summ_size1 / nthreads < (1 << (depth + 2))*n_bins || (depth > 2 && !hist_fit_to_l2) /*|| (n_features == 61) && depth > 4*/) {
   threads_id_for_nodes_.resize(1 << max_depth);
  // std::cout << "\n no reason to read sequentialy!: " << depth << ":" <<  n_features*summ_size1 / nthreads << std::endl;
   std::vector<std::vector<int>> nodes_count(nthreads);
@@ -2154,7 +2154,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWiseDense(
   RegTree *p_tree,
   const std::vector<GradientPair> &gpair_h) {
 
-  saved_split_ind_.clear();
+  //saved_split_ind_.clear();
   saved_split_ind_.resize(1 << (param_.max_depth + 1), 0);
   if (histograms_.size() == 0) {
     const size_t n_threads = omp_get_max_threads();
