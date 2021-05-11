@@ -2147,8 +2147,8 @@ uint64_t time_ExpandWithDepthWiseDense_t1 = get_time();
   std::vector<bst_uint> split_indexs(1 << param_.max_depth + 1);
   std::vector<int32_t> split_values(1 << param_.max_depth + 1);
 //std::cout << "split_conditions.size(): " << split_values.size() << " split_ind.size(): " << split_indexs.size() << std::endl;
-
-    uint64_t leafs_mask[128] = {};
+const uint32_t mask_size = 512;
+    uint64_t leafs_mask[mask_size] = {};
 
 uint64_t n_call = 0;
 ++n_call;
@@ -2178,7 +2178,7 @@ uint64_t t1 = 0;
     SplitSiblings</*isDense*/ true>(qexpand_depth_wise_, &nodes_for_explicit_hist_build_,
                   &nodes_for_subtraction_trick_, p_tree);
     hist_rows_adder_->AddHistRows(this, &starting_index, &sync_count, p_tree);
-    uint64_t mask[128] = {};
+    uint64_t mask[mask_size] = {};
 if(depth > 0) {
   t1 = get_time();
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h, mask, n_call);
@@ -2200,7 +2200,7 @@ if(depth > 0) {
     }
   time_DenseSync += get_time() - t1;
  //   std::cout << "\n DenseSync finished" << std::endl;
-    for(uint32_t i = 0; i < 128; ++i) {
+    for(uint32_t i = 0; i < mask_size; ++i) {
       leafs_mask[i] = 0;
     }
     // leafs_mask[0] = 0; leafs_mask[1] = 0; leafs_mask[2] = 0; leafs_mask[3] = 0; leafs_mask[4] = 0; leafs_mask[5] = 0; leafs_mask[6] = 0; leafs_mask[7] = 0;
