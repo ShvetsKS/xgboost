@@ -375,7 +375,6 @@ class QuantileHistMaker: public TreeUpdater {
 
     void EvaluateAndApplySplits(const GHistIndexMatrix &gmat,
                                 const ColumnMatrix &column_matrix,
-                                const std::vector<GradientPair>& gpair,
                                 RegTree *p_tree,
                                 int *num_leaves,
                                 int depth,
@@ -443,6 +442,7 @@ class QuantileHistMaker: public TreeUpdater {
     const RegTree* p_last_tree_;
     DMatrix const* const p_last_fmat_;
     DMatrix* p_last_fmat_mutable_;
+
     using ExpandQueue =
        std::priority_queue<ExpandEntry, std::vector<ExpandEntry>,
                            std::function<bool(ExpandEntry, ExpandEntry)>>;

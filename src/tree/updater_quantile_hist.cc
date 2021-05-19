@@ -419,7 +419,6 @@ template<typename GradientSumT>
 void QuantileHistMaker::Builder<GradientSumT>::EvaluateAndApplySplits(
     const GHistIndexMatrix &gmat,
     const ColumnMatrix &column_matrix,
-    const std::vector<GradientPair>& gpair,
     RegTree *p_tree,
     int *num_leaves,
     int depth,
@@ -493,7 +492,7 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithDepthWise(
     hist_synchronizer_->SyncHistograms(this, starting_index, sync_count, p_tree);
     BuildNodeStats(gmat, p_fmat, p_tree, gpair_h);
 
-    EvaluateAndApplySplits(gmat, column_matrix, gpair_h, p_tree, &num_leaves, depth, &timestamp,
+    EvaluateAndApplySplits(gmat, column_matrix, p_tree, &num_leaves, depth, &timestamp,
                    &temp_qexpand_depth);
 
     // clean up
@@ -549,7 +548,6 @@ void QuantileHistMaker::Builder<GradientSumT>::ExpandWithLossGuide(
                          e.best.DefaultLeft(), e.weight, left_leaf_weight,
                          right_leaf_weight, e.best.loss_chg, e.stats.GetHess(),
                          e.best.left_sum.GetHess(), e.best.right_sum.GetHess());
-      const bool is_root = nid == ExpandEntry::kRootNid;
       this->ApplySplit({candidate}, gmat, column_matrix, hist_, p_tree);
 
       const int cleft = (*p_tree)[nid].LeftChild();
@@ -594,6 +592,7 @@ void QuantileHistMaker::Builder<GradientSumT>::Update(
   builder_monitor_.Start("Update");
 
   std::vector<GradientPair>* gpair_ptr = &(gpair->HostVector());
+  // in case 'num_parallel_trees != 1' no posibility to change initial gpair
   if (GetNumberOfTrees() != 1) {
     gpair_local_.resize(gpair_ptr->size());
     gpair_local_ = *gpair_ptr;
@@ -1001,37 +1000,38 @@ void QuantileHistMaker::Builder<GradientSumT>::EvaluateSplits(
 // Analog of std::stable_partition, but in no-inplace manner
 template <bool default_left, bool any_missing, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionDenseKernel(const common::DenseColumn<BinIdxType>& column,
-      common::Span<const size_t> rid_span, const int32_t split_cond, common::Span<size_t> left_part,
-      common::Span<size_t> right_part) {
+      common::Span<const size_t> rid_span, const int32_t split_cond,
+      common::Span<size_t> left_part, common::Span<size_t> right_part) {
   const int32_t offset = column.GetBaseIdx();
   const BinIdxType* idx = column.GetFeatureBinIdxPtr().data();
   size_t* p_left_part = left_part.data();
   size_t* p_right_part = right_part.data();
   size_t nleft_elems = 0;
   size_t nright_elems = 0;
+
   if (any_missing) {
     for (auto rid : rid_span) {
-        if (column.IsMissing(rid)) {
-          if (default_left) {
-            p_left_part[nleft_elems++] = rid;
-          } else {
-            p_right_part[nright_elems++] = rid;
-          }
+      if (column.IsMissing(rid)) {
+        if (default_left) {
+          p_left_part[nleft_elems++] = rid;
         } else {
-          if ((static_cast<int32_t>(idx[rid]) + offset) <= split_cond) {
-            p_left_part[nleft_elems++] = rid;
-          } else {
-            p_right_part[nright_elems++] = rid;
-          }
+          p_right_part[nright_elems++] = rid;
         }
-    }
-  } else {
-    for (auto rid : rid_span)  {
+      } else {
         if ((static_cast<int32_t>(idx[rid]) + offset) <= split_cond) {
           p_left_part[nleft_elems++] = rid;
         } else {
           p_right_part[nright_elems++] = rid;
         }
+      }
+    }
+  } else {
+    for (auto rid : rid_span)  {
+      if ((static_cast<int32_t>(idx[rid]) + offset) <= split_cond) {
+        p_left_part[nleft_elems++] = rid;
+      } else {
+        p_right_part[nright_elems++] = rid;
+      }
     }
   }
   return {nleft_elems, nright_elems};
@@ -1043,10 +1043,8 @@ inline std::pair<size_t, size_t> PartitionDenseKernel(const common::DenseColumn<
 template<bool default_left, typename BinIdxType>
 inline std::pair<size_t, size_t> PartitionSparseKernel(
   const common::SparseColumn<BinIdxType>& column,
-   common::Span<const size_t> rid_span,
-  const int32_t split_cond,
-  common::Span<size_t> left_part,
-  common::Span<size_t> right_part) {
+  common::Span<const size_t> rid_span, const int32_t split_cond,
+  common::Span<size_t> left_part, common::Span<size_t> right_part) {
   size_t* p_left_part  = left_part.data();
   size_t* p_right_part = right_part.data();
 
@@ -1064,8 +1062,8 @@ inline std::pair<size_t, size_t> PartitionSparseKernel(
 
       for (auto rid : rid_span) {
         while (cursor < column_size
-              && column.GetRowIdx(cursor) < rid
-              && column.GetRowIdx(cursor) <= rid_span.back()) {
+               && column.GetRowIdx(cursor) < rid
+               && column.GetRowIdx(cursor) <= rid_span.back()) {
           ++cursor;
         }
         if (cursor < column_size && column.GetRowIdx(cursor) == rid) {
