@@ -115,7 +115,8 @@ class RowSetCollection {
     }
 
     elem_of_each_node_[left_node_id] = Elem(begin, begin + n_left, left_node_id);
-    elem_of_each_node_[right_node_id] = Elem(begin + n_left, e.end, right_node_id);
+    elem_of_each_node_[right_node_id] = Elem(begin + n_left, begin + n_left + n_right,
+                                             right_node_id);
     elem_of_each_node_[node_id] = Elem(nullptr, nullptr, -1);
   }
 
