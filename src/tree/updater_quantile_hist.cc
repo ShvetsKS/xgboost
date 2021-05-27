@@ -669,12 +669,13 @@ struct RandomReplace {
  private:
   // similar value as for minstd_rand
   static constexpr uint64_t kBase = 16807;
-  static constexpr uint64_t mod = static_cast<uint64_t>(1) << 63;
+  static constexpr uint64_t kMod = static_cast<uint64_t>(1) << 63;
 
   /*
     Right-to-left binary method: https://en.wikipedia.org/wiki/Modular_exponentiation
   */
-  static uint64_t SimpleSkip(uint64_t exponent, uint64_t initial_seed, uint64_t base, uint64_t mod) {
+  static uint64_t SimpleSkip(uint64_t exponent, uint64_t initial_seed,
+                             uint64_t base, uint64_t mod) {
     CHECK_LE(exponent, mod);
     uint64_t result = 1;
     while (exponent > 0) {
@@ -689,14 +690,14 @@ struct RandomReplace {
   }
 
  public:
-  using EngineT = std::linear_congruential_engine<uint64_t, kBase, 0, mod>;
+  using EngineT = std::linear_congruential_engine<uint64_t, kBase, 0, kMod>;
 
   template<typename Condition, typename ContainerData>
   static void MakeIf(Condition condition, const typename ContainerData::value_type replace_value,
                       const uint64_t initial_seed, const size_t ibegin,
                       const size_t iend, ContainerData* gpair) {
     ContainerData& gpair_ref = *gpair;
-    const uint64_t displaced_seed = SimpleSkip(ibegin, initial_seed, kBase, mod);
+    const uint64_t displaced_seed = SimpleSkip(ibegin, initial_seed, kBase, kMod);
     EngineT eng(displaced_seed);
     for (size_t i = ibegin; i < iend; ++i) {
       if (condition(i, eng)) {
