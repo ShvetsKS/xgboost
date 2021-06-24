@@ -119,6 +119,7 @@ class ColumnMatrix {
       CHECK_LE(gmat.cut.Ptrs()[fid + 1] - gmat.cut.Ptrs()[fid], max_val);
     }
     bool all_dense = gmat.IsDense();
+    std::cout << "all_dense: " << all_dense << std::endl;
     gmat.GetFeatureCounts(&feature_counts_[0]);
     // classify features
     for (int32_t fid = 0; fid < nfeature; ++fid) {
@@ -126,6 +127,7 @@ class ColumnMatrix {
                  < sparse_threshold * nrow) {
         type_[fid] = kSparseColumn;
         all_dense = false;
+        std::cout << "\nkSparseColumn\n";
       } else {
         type_[fid] = kDenseColumn;
       }
@@ -144,7 +146,7 @@ class ColumnMatrix {
       }
       feature_offsets_[fid] = accum_index_;
     }
-
+// std::cout << "\n\n!!!!!accum_index_: " << accum_index_ << std::endl;
     SetTypeSize(gmat.max_num_bins);
     const size_t n_threads = omp_get_max_threads();
     #pragma omp parallel num_threads(n_threads)
@@ -341,6 +343,9 @@ class ColumnMatrix {
   }
   const uint8_t* GetIndex2Data() const {
     return index2_.data();
+  }
+  const uint32_t* IndexBase() const {
+    return index_base_;
   }
  private:
   std::vector<uint8_t> index_;
